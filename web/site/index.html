@@ -208,7 +208,7 @@
             <div><h3 class="mb-1">Windows 10 and 11 (64-bit)</h3>
               <span class="fr-badge fr-badge-dev">In development</span></div>
           </div>
-          <p class="mt-3" id="download-text">The Windows app is being built and tested. A signed installer will be published here when the pilot opens.</p>
+          <p class="mt-3 mb-3" id="download-text">The Windows app is being built and tested. A signed installer will be published here when the pilot opens.</p>
           <!-- Enabled by app.js only when downloads/latest.json describes a published build. -->
           <button type="button" class="btn fr-btn-primary" id="download-button" disabled aria-disabled="true">Installer not yet available</button>
           <div class="fr-download-details" id="download-details" hidden>
@@ -223,9 +223,12 @@
           </div>
         </div></div>
         <div class="col-lg-6"><div class="fr-card fr-download">
-          <h3>macOS, Linux and mobile</h3>
-          <span class="fr-badge fr-badge-planned">Planned</span>
-          <p class="mt-3">Other platforms are on the roadmap after the Windows release.</p>
+          <div class="d-flex align-items-center gap-3">
+            <svg class="fr-os fr-os-muted" viewBox="0 0 24 24" aria-hidden="true"><path fill-rule="evenodd" d="M4 5h16v10H4zm2 2v6h12V7zM2 17h20v2H2z"/></svg>
+            <div><h3 class="mb-1">macOS, Linux and mobile</h3>
+              <span class="fr-badge fr-badge-planned">Planned</span></div>
+          </div>
+          <p class="mt-3 mb-0">Other platforms are on the roadmap after the Windows release.</p>
         </div></div>
       </div>
     </div>

@@ -108,12 +108,14 @@ body { background: var(--fr-bg); color: var(--fr-ink); }
 
 .fr-download h3 { font-size: 1.2rem; }
 .fr-download-details { margin-top: 1rem; }
-.fr-download-details dl { display: grid; grid-template-columns: max-content 1fr; gap: .25rem 1rem; margin: 0 0 .75rem; }
+.fr-download-details dl { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: .25rem 1rem; margin: 0 0 .75rem; }
 .fr-download-details dt { color: var(--fr-muted); font-weight: 600; }
 .fr-download-details dd { margin: 0; overflow-wrap: anywhere; }
 .fr-download-details code { font-size: .8rem; color: var(--fr-navy); }
+.fr-download-details dd code { word-break: break-all; }
 .fr-download-warning { font-size: .9rem; color: var(--fr-muted); background: #fff4e5; border-radius: 8px; padding: .75rem 1rem; margin: 0; }
 .fr-os { width: 2.6rem; height: 2.6rem; fill: var(--fr-blue); flex: none; }
+.fr-os-muted { fill: var(--fr-muted); }
 
 .fr-support { display: flex; align-items: center; justify-content: space-between; gap: 2rem; padding: 2rem;
   border: 1px solid var(--fr-line); border-radius: var(--fr-radius); background: #fff; }
