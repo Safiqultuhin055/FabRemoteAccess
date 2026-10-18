@@ -1,0 +1,11 @@
+{
+  "product": "Fabulous Remote",
+  "version": "0.4.0",
+  "channel": "preview",
+  "file": "FabulousRemote-Setup-0.4.0-preview.exe",
+  "size_bytes": 39850928,
+  "sha256": "ee7e948576948f8ceae31455659578327e6a379f03552bc5b9209ec875281c80",
+  "signed": false,
+  "requirements": "Windows 10 or 11, 64-bit",
+  "published_at": "2026-10-18T08:53:05Z"
+}
