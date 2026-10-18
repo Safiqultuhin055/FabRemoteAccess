@@ -114,6 +114,23 @@ def publish_to_site(installer: Path, version: str, downloads: Path = SITE_DOWNLO
     return manifest
 
 
+def option(name: str) -> str | None:
+    """Value of `--name value` or `--name=value` from the command line."""
+    argv = sys.argv[1:]
+    for i, arg in enumerate(argv):
+        if arg == name and i + 1 < len(argv):
+            return argv[i + 1]
+        if arg.startswith(name + "="):
+            return arg.split("=", 1)[1]
+    return None
+
+
+def valid_server(url: str) -> bool:
+    """Same rule as the installer and the app: https, or http only to this computer."""
+    lower = url.strip().lower()
+    return (lower.startswith("https://") or lower.startswith(("http://127.0.0.1", "http://localhost")))         and '"' not in url and " " not in url.strip()
+
+
 def run(cmd: list[str]) -> None:
     print(">", " ".join(f'"{c}"' if " " in c else c for c in cmd), flush=True)
     subprocess.run(cmd, check=True)
@@ -121,6 +138,10 @@ def run(cmd: list[str]) -> None:
 
 def main() -> int:
     version = app_version()
+    default_server = option("--default-server") or "http://127.0.0.1:8765"
+    if not valid_server(default_server):
+        print("--default-server must be https:// (http:// only for 127.0.0.1/localhost)", file=sys.stderr)
+        return 2
     shutil.rmtree(BUILD, ignore_errors=True)
     shutil.rmtree(DIST / "desktop", ignore_errors=True)
     BUILD.mkdir(parents=True, exist_ok=True)
@@ -142,7 +163,8 @@ def main() -> int:
     if iscc is None:
         print("Inno Setup 6 not found: the one-folder build is in dist\\desktop\\FabulousRemote (no installer).")
         return 0
-    run([str(iscc), "/Q", f"/DAppVersion={version}", f"/DRepoRoot={ROOT}", str(PACKAGING / "FabulousRemote.iss")])
+    run([str(iscc), "/Q", f"/DAppVersion={version}", f"/DRepoRoot={ROOT}", f"/DDefaultServer={default_server}",
+         str(PACKAGING / "FabulousRemote.iss")])
 
     installer = DIST / "installer" / f"FabulousRemote-Setup-{version}-preview.exe"
     digest = hashlib.sha256(installer.read_bytes()).hexdigest()
@@ -150,6 +172,10 @@ def main() -> int:
     print(f"\nInstaller: {installer}\nSize:      {size_mb:.1f} MB\nSHA-256:   {digest}")
     print(f"Portable:  {exe}  (run this one; build\\ only holds temporary files)")
     print("Not code-signed: Windows SmartScreen will show a warning.")
+    print(f"Default server in the installer: {default_server}")
+    if default_server != "http://127.0.0.1:8765":
+        print("Note: this installer contains that address. The repository is public and web/site/downloads is "
+              "committed; consider --no-publish for builds with internal addresses.")
     if "--no-publish" not in sys.argv[1:]:
         manifest = publish_to_site(installer, version)
         print(f"Published: {SITE_DOWNLOADS / manifest['file']}  -> landing page Download button "

@@ -53,6 +53,9 @@ Needs PyInstaller (in `requirements-dev.txt`) and [Inno Setup 6](https://jrsoftw
 
 ## Security notes
 
+- **HTTPS is verified against the Windows certificate store** (truststore), so a company or internal CA installed on the PC is trusted. `FR_DESKTOP_CA_BUNDLE` can name a CA file instead. Verification cannot be switched off, and plain `http` is accepted only for this computer.
+- Build an installer with the server pre-filled: `python build_installer.py --default-server https://<server>:300 --no-publish` (see [deploy/README.md](../deploy/README.md)).
+
 - Tokens are kept **in memory only** and discarded on sign-out or exit. Saving the refresh token in Windows Credential Manager is planned with device registration.
 - Refresh calls are serialised: the server revokes a session if one refresh token is used twice.
 - Sign-in errors are generic, and the password field is cleared after a failure.

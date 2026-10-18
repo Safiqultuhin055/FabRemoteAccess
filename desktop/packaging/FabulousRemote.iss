@@ -11,6 +11,9 @@
 #ifndef RepoRoot
   #define RepoRoot "..\.."
 #endif
+#ifndef DefaultServer
+  #define DefaultServer "http://127.0.0.1:8765"
+#endif
 
 [Setup]
 AppId={{6E2B7B6C-3C9A-4E7B-9C1D-5F0A2B8D4E11}
@@ -64,7 +67,7 @@ begin
     'Which Fabulous Remote server should this computer use?',
     'Use the https address from your administrator. http is accepted only for a server on this computer.');
   ServerPage.Add('Server address:', False);
-  ServerPage.Values[0] := ExpandConstant('{param:SERVER|http://127.0.0.1:8765}');
+  ServerPage.Values[0] := ExpandConstant('{param:SERVER|{#DefaultServer}}');
 end;
 
 function IsAcceptableUrl(Url: String): Boolean;

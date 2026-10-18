@@ -121,7 +121,7 @@ Status: initial version (Phase 1). Reviewed again at the end of every phase; ful
 - Nothing has run against the shared DEV database: it has no application login yet (P003), and the backend refuses `sa`.
 - Penetration testing and dependency vulnerability scanning have not been done (Phase 9).
 - **Devices:** presence requires the owner's signed-in session plus the device key; device-only tokens and the presence WebSocket come with Phase 3e. The device limit check is serialised per user with an application lock. DPAPI protects the key from other Windows users and offline copies, but not from malware running as the same user. There is no hardware-backed key storage (TPM) yet. A `key_compromised` revocation stops future use but cannot undo past sessions (there are none before 3e).
-- **Shared DEV database:** still at schema version 7. V0008 and the updated P002 must be applied there (with approval) before device registration can work against it.
+- **Shared DEV database:** at schema version 8, but no application logins are mapped yet (P003), so the backend still cannot use it.
 
 ## 5. Open security items
 

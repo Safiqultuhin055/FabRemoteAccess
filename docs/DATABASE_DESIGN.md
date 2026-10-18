@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| Status | Applied to a non-production DEV environment up to version 7 (see §0). Still a draft for production. |
+| Status | Applied to a non-production DEV environment up to version 8 (see §0). Still a draft for production. |
 | Target | SQL Server, database `FabRemotesDB`, new schema **`fr`** (host configured locally in `.env`, not in documentation) |
 | Scripts | [`database/permissions/`](../database/permissions/), [`database/migrations/`](../database/migrations/), [`database/migrations/rollback/`](../database/migrations/rollback/) |
 | Verified on | SQL Server 2019 LocalDB (15.0.4382), private test instance `(localdb)\FabRemoteTest`; also at compatibility levels 110 (2012) and 130 (2016) on that engine |
@@ -10,7 +10,7 @@
 
 ## 0. Environments
 
-The schema has been applied to a non-production DEV environment up to **version 7** (V0001–V0007). V0008 is verified on LocalDB only. The operational deployment record (dates, verification results, open follow-ups) is kept outside this public repository.
+The schema has been applied to a non-production DEV environment up to **version 8** (V0001–V0008), and is verified on LocalDB by the test suite. The operational deployment record (dates, verification results, open follow-ups) is kept outside this public repository.
 
 ## 1. Discovery gate
 
@@ -343,7 +343,7 @@ Legal basis, response deadlines and exceptions (e.g. legal hold) are for the own
 - **Policy:** V0001–V0007 are applied on the shared DEV database and are **not edited**; V0008 is a new migration with rollback `R0008` (refuses once any ID is allocated, by design).
 - **P002** now requires version 8 and grants the new tables; it must be re-run after V0008.
 - **Verified on:** LocalDB (full test suite; local dev DB `FabRemotesDB_dev` migrated to 8).
-- **Not applied** to the shared DEV `FabRemotesDB` (still version 7): this needs explicit approval and should use the migration login, not `sa`.
+- **Applied** to the DEV environment on 2026-10-18 (with P002 re-run); details are in the internal deployment record.
 
 ## 15. Phase 2 review corrections (2026-10-17)
 

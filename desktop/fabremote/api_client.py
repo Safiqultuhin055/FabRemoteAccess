@@ -7,10 +7,13 @@ treats two refreshes with the same token as theft and revokes the session.
 
 from __future__ import annotations
 
+import os
+import ssl
 import threading
 from urllib.parse import urlsplit
 
 import httpx
+import truststore
 
 from fabremote import __version__
 
@@ -25,6 +28,20 @@ class ApiError(Exception):
         self.message = message
 
 
+def tls_context() -> ssl.SSLContext:
+    """Certificate verification is always on.
+
+    Default: the Windows certificate store (truststore), so a company or internal CA that is
+    installed on the PC is trusted, exactly like in a browser. FR_DESKTOP_CA_BUNDLE may name
+    an extra PEM file with the internal CA instead. There is deliberately no way to disable
+    verification.
+    """
+    bundle = os.environ.get("FR_DESKTOP_CA_BUNDLE")
+    if bundle:
+        return ssl.create_default_context(cafile=bundle)
+    return truststore.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+
+
 def validate_base_url(url: str) -> str:
     parts = urlsplit(url)
     if parts.scheme == "https" and parts.hostname:
@@ -37,7 +54,7 @@ def validate_base_url(url: str) -> str:
 class ApiClient:
     def __init__(self, base_url: str, *, transport: httpx.BaseTransport | None = None, timeout: float = 10.0):
         self.base_url = validate_base_url(base_url)
-        self._http = httpx.Client(base_url=self.base_url, timeout=timeout, transport=transport,
+        self._http = httpx.Client(base_url=self.base_url, timeout=timeout, transport=transport, verify=tls_context(),
                                   headers={"User-Agent": f"FabulousRemote-Desktop/{__version__}"})
         self._lock = threading.Lock()
         self._access: str | None = None

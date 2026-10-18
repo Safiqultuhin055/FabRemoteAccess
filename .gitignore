@@ -51,3 +51,8 @@ Desktop.ini
 
 # Internal operational records (never published)
 docs/private/
+
+# Server TLS material and the production config (never committed)
+deploy/server/certs/
+deploy/server/.env
+!deploy/server/.env.production.example

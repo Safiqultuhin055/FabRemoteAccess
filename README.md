@@ -11,7 +11,7 @@
 ![Platform](https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-informational)
 ![Backend](https://img.shields.io/badge/backend-FastAPI-009688)
 ![Database](https://img.shields.io/badge/database-SQL%20Server-CC2927)
-![Tests](https://img.shields.io/badge/tests-456%20passing-brightgreen)
+![Tests](https://img.shields.io/badge/tests-467%20passing-brightgreen)
 
 </div>
 
@@ -83,6 +83,7 @@ FabRemoteAccess/
 ├── desktop/            PySide6 client: fabremote/, packaging/ (PyInstaller + Inno Setup), tests/
 ├── database/           migrations/ (V0001–V0008 + rollback/), permissions/ (P001–P003, PR001), tests/
 ├── web/site/           Landing page (HTML, Bootstrap 5, CSS, JS)
+├── deploy/             Server deployment kit: HTTPS launcher, internal CA tool, production config template
 ├── tools/              Read-only database inventory tool
 ├── docs/               Architecture, API contracts, database design, security, status
 ├── run_all.py          Start server + landing page + desktop app (development)
@@ -159,7 +160,7 @@ All settings come from `FR_*` environment variables or an untracked `.env` file.
 ## Testing
 
 ```powershell
-python -m pytest           # 456 tests: database, tools, backend (unit + integration), desktop
+python -m pytest           # 467 tests: database, tools, backend (unit + integration), desktop
 ```
 
 | Suite | Scope |
@@ -192,6 +193,7 @@ Requirements, threat model, implementation status and known gaps: [docs/SECURITY
 | [docs/DATABASE_DESIGN.md](docs/DATABASE_DESIGN.md) | Schema, migrations, permissions, retention, setup and rollback |
 | [docs/SECURITY.md](docs/SECURITY.md) | Security requirements, threat model, verified controls, gaps |
 | [docs/FEATURE_STATUS.md](docs/FEATURE_STATUS.md) | Phase-by-phase status and known limitations |
+| [deploy/README.md](deploy/README.md) | Deploying the server on Windows over HTTPS and connecting the clients |
 | [backend/README.md](backend/README.md) · [desktop/README.md](desktop/README.md) | Component guides |
 | [CHANGELOG.md](CHANGELOG.md) | What changed in each phase |
 

@@ -9,7 +9,7 @@ Last updated: 2026-10-18 (Phase 3c, offline)
 | Phase | Description | Status |
 |---|---|---|
 | 1 | Repository inspection and architecture documentation | **Done** |
-| 2 | Database design and safe migrations | **Done**; applied to a DEV environment up to version 7. Pending there: dedicated least-privilege logins (P003) and V0008 |
+| 2 | Database design and safe migrations | **Done**; applied to a DEV environment up to version 8. Pending there: dedicated least-privilege logins (P003) |
 | 3 | FastAPI backend + tests | **In progress**: 3a, 3b, 3c (authentication) and **3d (device registration, Remote IDs, verified presence, key rotation)** done offline on LocalDB; 3e–3f awaiting approval |
 | 4 | PySide6 desktop client integration | **Preview** (`desktop/`): sign-in, account, live server status, sign-out; "This device" card with all registration/presence states (live: Not registered, Register disabled until Phase 3d; other states only in labelled preview mode) |
 | 5 | Landing page and web portal | **Landing page done** (`web/site`, served by the backend when `FR_SITE_DIR` is set); web portal planned |
@@ -42,7 +42,6 @@ Last updated: 2026-10-18 (Phase 3c, offline)
 - No prototype code existed; only branding from the design mockup is carried forward.
 - `FabRemotesDB` did not exist before 2026-10-17; it was created empty on the shared DEV server and migrated (see `DATABASE_DESIGN.md` §0).
 - DEV environment operational follow-ups are tracked outside this repository.
-- The shared DEV `FabRemotesDB` is at schema version 7: V0008 (device registration) and the updated P002 are not applied there yet.
 - No application logins are mapped (P003 not run), so the backend cannot yet connect to the shared database as the runtime role; it has never connected to it.
 - Authentication API exists but has only been exercised on LocalDB; no portal or desktop UI uses it yet. Known gaps are listed in `SECURITY.md` §4.
 - Retention periods (365 days sessions/audit, 90 days requests/IPs) are proposals pending owner/legal approval; the retention job stays disabled (`FR_RETENTION_ENABLED=false`).
