@@ -46,7 +46,7 @@ def configured_api_url(path: Path | None = None) -> str:
 
 
 class Controller:
-    """Login → main window → (sign out) → login again, until the user cancels."""
+    """Opens the main window signed out; Sign in → signed-in window; Sign out → signed out again."""
 
     def __init__(self, app: QApplication, client: ApiClient, preview_mode: str | None = None):
         self._app = app
@@ -55,24 +55,28 @@ class Controller:
         self.window: MainWindow | None = None
 
     def start(self) -> bool:
-        dialog = LoginDialog(self._client)
-        if dialog.exec() != QDialog.DialogCode.Accepted:
-            self._app.quit()
-            return False
-        gateway = PreviewDeviceGateway(self._preview_mode) if self._preview_mode else None
-        self.window = MainWindow(self._client, dialog.user, device_gateway=gateway)
-        self.window.signed_out.connect(self._signed_out)
-        self.window.show()
+        self._show(None)
         return True
 
-    def _signed_out(self) -> None:
-        # Hide (not close) first, so Qt does not quit while the login dialog is opening.
-        old, self.window = self.window, None
+    def _show(self, user: dict | None) -> None:
+        gateway = PreviewDeviceGateway(self._preview_mode) if self._preview_mode else None
+        old = self.window
+        self.window = MainWindow(self._client, user, device_gateway=gateway)
+        self.window.signed_out.connect(lambda: self._show(None))
+        self.window.sign_in_requested.connect(self.sign_in)
         if old:
+            self.window.setGeometry(old.geometry())
+        # Show the new window before hiding the old one, so Qt never sees zero windows and quits.
+        self.window.show()
+        if old:
+            old.device.stop()
             old.hide()
-        self.start()
-        if old:
             old.deleteLater()
+
+    def sign_in(self) -> None:
+        dialog = LoginDialog(self._client, self.window)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            self._show(dialog.user)
 
 
 def main(argv: list[str] | None = None) -> int:

@@ -58,13 +58,14 @@ Needs PyInstaller (in `requirements-dev.txt`) and [Inno Setup 6](https://jrsoftw
 
 - Tokens are kept **in memory only** and discarded on sign-out or exit. Saving the refresh token in Windows Credential Manager is planned with device registration.
 - Refresh calls are serialised: the server revokes a session if one refresh token is used twice.
+- The app opens without signing in. Server status and the Remote ID field work signed out; registering this computer (and everything else that needs an account) asks you to sign in first.
 - Sign-in errors are generic, and the password field is cleared after a failure.
 
 ## Layout
 
 | Path | Purpose |
 |---|---|
-| `fabremote/app.py` | Entry point and login → main window → sign-out flow |
+| `fabremote/app.py` | Entry point: opens the main window signed out; Sign in → signed-in window; Sign out → signed out |
 | `fabremote/api_client.py` | HTTP client (httpx): login, refresh rotation, `/auth/me`, logout, health |
 | `fabremote/workers.py` | Runs HTTP calls off the UI thread |
 | `fabremote/device.py`, `device_controller.py` | This-device state model, gateways (real API / preview) and transitions |

@@ -6,6 +6,8 @@ ID, "Online" without a verified identity), so the UI cannot display them by acci
 Gateways:
 - ApiDeviceGateway: the real server (Phase 3d endpoints). Signs challenges with the local
   device key; every server response is validated before it reaches the UI.
+- SignedOutGateway: before sign-in. Registration needs an account, so it contacts nothing
+  and the card asks the user to sign in.
 - PreviewDeviceGateway: sample data for reviewing the UI states. Only used when the app is
   started with --preview-device-states; everything it returns is marked as preview.
 """
@@ -32,6 +34,7 @@ PHASE_3D_REASON = ("This server does not offer device registration yet. "
 UNREACHABLE = "Cannot reach the server. Check your connection and try again."
 UNEXPECTED = "The server sent an unexpected response. Try again later."
 SESSION_ENDED = "Your session has ended. Please sign in again."
+SIGN_IN_REQUIRED = "Sign in to register this computer and get its Remote ID."
 
 
 class DeviceStatus(Enum):
@@ -251,6 +254,32 @@ class ApiDeviceGateway:
         except ApiError as error:
             raise _map_error(error) from None
         return device["online"] is True
+
+
+# ------------------------------------------------------------------ signed out
+
+
+class SignedOutGateway:
+    """Before sign-in: device registration needs an account, so nothing is contacted."""
+
+    supported = False
+    unsupported_reason = SIGN_IN_REQUIRED
+    preview = False
+
+    def has_local_device(self) -> bool:
+        return False
+
+    def existing(self) -> Registration | None:
+        raise AuthRequiredError()
+
+    def register(self, device_name: str) -> Registration:
+        raise AuthRequiredError()
+
+    def verify_identity(self) -> bool:
+        raise AuthRequiredError()
+
+    def is_online(self) -> bool:
+        raise AuthRequiredError()
 
 
 # ------------------------------------------------------------------ preview

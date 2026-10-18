@@ -1,5 +1,9 @@
 """Main window (layout from the design mockup).
 
+The window opens signed out (user None): the server status and Remote ID input work, and
+the Sign in button and the device card lead to sign-in. Everything that needs an account
+waits for it; nothing is shown as registered or online before the server confirms it.
+
 Honesty rules (docs/PHASE1_AUDIT.md): status indicators show only verified state. The
 "This device" card is driven by DeviceController against the real device API (Phase 3d):
 the Remote ID, verified identity and Online status come only from server responses.
@@ -17,7 +21,7 @@ from PySide6.QtWidgets import (QButtonGroup, QFrame, QHBoxLayout, QLabel, QLineE
 
 from fabremote import __version__, remote_id
 from fabremote.api_client import ApiClient, ApiError
-from fabremote.device import ApiDeviceGateway, DeviceGateway
+from fabremote.device import ApiDeviceGateway, DeviceGateway, SignedOutGateway
 from fabremote.device_identity import DeviceIdentity, DpapiKeyStore
 from fabremote.device_controller import DeviceController
 from fabremote.ui.device_card import DeviceCard
@@ -69,13 +73,18 @@ class Dot(QLabel):
 
 class MainWindow(QMainWindow):
     signed_out = Signal()
+    sign_in_requested = Signal()
 
-    def __init__(self, client: ApiClient, user: dict, device_gateway: DeviceGateway | None = None):
+    def __init__(self, client: ApiClient, user: dict | None, device_gateway: DeviceGateway | None = None):
         super().__init__()
         self._client = client
         self._user = user
-        gateway = device_gateway or ApiDeviceGateway(
-            client, DeviceIdentity(DpapiKeyStore.for_server(client.base_url)), user["id"])
+        if device_gateway:
+            gateway = device_gateway
+        elif user is None:
+            gateway = SignedOutGateway()
+        else:
+            gateway = ApiDeviceGateway(client, DeviceIdentity(DpapiKeyStore.for_server(client.base_url)), user["id"])
         self.device = DeviceController(gateway, platform.node() or "This computer", parent=self)
         self.device.auth_required.connect(self.signed_out.emit)
         self.setWindowTitle("Fabulous Remote" + (" — PREVIEW DATA" if gateway.preview else ""))
@@ -154,6 +163,13 @@ class MainWindow(QMainWindow):
         bar.addWidget(self.status_dot)
         bar.addWidget(self.status_text)
         bar.addSpacing(16)
+        if self._user is None:
+            self.sign_in_button = QPushButton("Sign in")
+            self.sign_in_button.setObjectName("primary")
+            self.sign_in_button.setCursor(Qt.CursorShape.PointingHandCursor)
+            self.sign_in_button.clicked.connect(self.sign_in_requested)
+            bar.addWidget(self.sign_in_button)
+            return bar
         initials = "".join(part[:1] for part in self._user.get("display_name", "?").split()[:2]).upper() or "?"
         self.avatar = QPushButton(initials)
         self.avatar.setObjectName("avatar")
@@ -198,6 +214,9 @@ class MainWindow(QMainWindow):
         self.device_card.register_requested.connect(self.device.register)
         self.device_card.retry_requested.connect(self.device.retry)
         self.device_card.recheck_requested.connect(self.device.refresh_presence)
+        self.device_card.sign_in_requested.connect(self.sign_in_requested)
+        if self._user is None and not self.device.state.preview:
+            self.device_card.require_sign_in()
         self.device.state_changed.connect(self.device_card.render)
         self.device_card.render(self.device.state)
         self.device.start()   # resume a registration stored on this computer, confirmed by the server
@@ -229,8 +248,12 @@ class MainWindow(QMainWindow):
         layout.addWidget(label("Settings", "title"))
         info, info_layout = card()
         info_layout.addWidget(label("Account", "section"))
-        info_layout.addWidget(label(f"{self._user.get('display_name', '')} · {self._user.get('email', '')}", "muted"))
-        info_layout.addWidget(label("Roles: " + ", ".join(self._user.get("roles", [])), "muted"))
+        if self._user is None:
+            info_layout.addWidget(label("Not signed in.", "muted"))
+        else:
+            info_layout.addWidget(label(f"{self._user.get('display_name', '')} · {self._user.get('email', '')}",
+                                        "muted"))
+            info_layout.addWidget(label("Roles: " + ", ".join(self._user.get("roles", [])), "muted"))
         info_layout.addSpacing(8)
         info_layout.addWidget(label("Server", "section"))
         info_layout.addWidget(label(self._client.base_url, "muted"))

@@ -11,7 +11,7 @@
 ![Platform](https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-informational)
 ![Backend](https://img.shields.io/badge/backend-FastAPI-009688)
 ![Database](https://img.shields.io/badge/database-SQL%20Server-CC2927)
-![Tests](https://img.shields.io/badge/tests-467%20passing-brightgreen)
+![Tests](https://img.shields.io/badge/tests-472%20passing-brightgreen)
 
 </div>
 
@@ -160,7 +160,7 @@ All settings come from `FR_*` environment variables or an untracked `.env` file.
 ## Testing
 
 ```powershell
-python -m pytest           # 467 tests: database, tools, backend (unit + integration), desktop
+python -m pytest           # 472 tests: database, tools, backend (unit + integration), desktop
 ```
 
 | Suite | Scope |

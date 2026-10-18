@@ -42,6 +42,7 @@ class DeviceCard(QFrame):
     register_requested = Signal()
     retry_requested = Signal()
     recheck_requested = Signal()
+    sign_in_requested = Signal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -108,7 +109,7 @@ class DeviceCard(QFrame):
         self.register_button = QPushButton("Register This Device")
         self.register_button.setObjectName("primary")
         self.register_button.setAccessibleName("Register this device")
-        self.register_button.clicked.connect(self.register_requested)
+        self.register_button.clicked.connect(self._on_register)
         self.retry_button = QPushButton("Try again")
         self.retry_button.setObjectName("secondary")
         self.retry_button.clicked.connect(self._on_retry)
@@ -120,8 +121,18 @@ class DeviceCard(QFrame):
         body.addLayout(details, 1)
         outer.addLayout(body)
         self._state: DeviceState | None = None
+        self._needs_sign_in = False
 
     # ------------------------------------------------------------------ render
+
+    def require_sign_in(self) -> None:
+        """Signed out: the register button opens sign-in instead (registration needs an account)."""
+        self._needs_sign_in = True
+        if self._state:
+            self.render(self._state)
+
+    def _on_register(self) -> None:
+        (self.sign_in_requested if self._needs_sign_in else self.register_requested).emit()
 
     def _on_retry(self) -> None:
         if self._state and self._state.status is DeviceStatus.OFFLINE:
@@ -179,8 +190,11 @@ class DeviceCard(QFrame):
         busy = s in (DeviceStatus.PENDING, DeviceStatus.VERIFYING)
         self.progress.setVisible(busy)
         self.register_button.setVisible(s is DeviceStatus.NOT_REGISTERED)
-        self.register_button.setEnabled(s is DeviceStatus.NOT_REGISTERED and state.can_register)
-        self.register_button.setToolTip("" if state.can_register else (state.message or ""))
+        allowed = state.can_register or self._needs_sign_in
+        self.register_button.setEnabled(s is DeviceStatus.NOT_REGISTERED and allowed)
+        self.register_button.setToolTip("" if allowed else (state.message or ""))
+        self.register_button.setText("Sign in to register" if self._needs_sign_in else "Register This Device")
+        self.register_button.setAccessibleName(self.register_button.text())
         self.retry_button.setVisible(s in (DeviceStatus.FAILED, DeviceStatus.OFFLINE))
         self.retry_button.setText("Check again" if s is DeviceStatus.OFFLINE else "Try again")
         self.retry_button.setAccessibleName(self.retry_button.text())

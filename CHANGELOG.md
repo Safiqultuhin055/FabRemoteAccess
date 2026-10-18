@@ -4,6 +4,10 @@ All notable changes to this project are documented here. The project is in **pre
 
 ## [Unreleased]
 
+### Changed
+- Desktop app opens straight to the main window, signed out, instead of a sign-in dialog. A Sign in button in the top bar and "Sign in to register" on the This-device card lead to sign-in; registration still requires an account.
+- HTTPS deployment kit (`deploy/`), Windows certificate-store trust in the desktop client, installer `--default-server`.
+
 ### Added — Phase 3d: device registration
 - Device registration with Ed25519 proof of possession: single-use challenges bound to the user, the login session and the proposed public key.
 - Server-assigned 9-digit Remote IDs from a cryptographically secure generator, with a permanent registry so an ID is **never reused**, even after revocation.
