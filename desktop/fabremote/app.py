@@ -69,7 +69,7 @@ class Controller:
         # Show the new window before hiding the old one, so Qt never sees zero windows and quits.
         self.window.show()
         if old:
-            old.device.stop()
+            old.shutdown()
             old.hide()
             old.deleteLater()
 

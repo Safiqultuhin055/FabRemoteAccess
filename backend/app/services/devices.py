@@ -10,6 +10,11 @@ Rules (docs/API_CONTRACTS.md section 5.3):
 - Only the owner may operate a device; administrators may view and revoke. Devices that
   are not visible to the caller are reported as not found.
 - Failed proofs commit their audit event and the consumed challenge before raising.
+
+Without an account (V0009): the computer being helped registers with its key alone and gets
+a Remote ID. It then signs a single-use challenge to obtain a short-lived device token, which
+is checked against the active device and key on every request. Such a device can receive
+connection requests (and must approve each one); only signed-in users can send requests.
 """
 
 from __future__ import annotations
@@ -25,12 +30,13 @@ from app.config import Settings
 from app.db.models import Device, DeviceAuthChallenge, DeviceKey, DeviceRegistrationChallenge
 from app.domain.constants import (AuditOutcome, DeviceRevokedReason, DeviceStatus, IncomingPolicy,
                                   KeyRevokedReason, Role)
-from app.domain.errors import (ConcurrencyError, ConflictError, DependencyUnavailableError, InputRejectedError,
-                               NotFoundError, PermissionDeniedError, ProofRejectedError)
+from app.domain.errors import (AuthenticationError, ConcurrencyError, ConflictError, DependencyUnavailableError,
+                               InputRejectedError, NotFoundError, PermissionDeniedError, ProofRejectedError)
 from app.domain.repositories import UnitOfWork, UnitOfWorkFactory
 from app.security import device_proof
 from app.security.clock import Clock
-from app.services.context import Principal, RequestContext
+from app.security.tokens import DeviceTokenIssuer, InvalidAccessToken
+from app.services.context import DevicePrincipal, Principal, RequestContext
 
 REMOTE_ID_ATTEMPTS = 10
 
@@ -64,12 +70,18 @@ def _key_taken() -> ConflictError:
     return ConflictError("This device key is already registered.", code="key_already_registered")
 
 
+def _invalid_device_token() -> AuthenticationError:
+    return AuthenticationError("The device token is invalid or has expired.", code="invalid_device_token")
+
+
 class DeviceService:
     def __init__(self, uow_factory: UnitOfWorkFactory, settings: Settings, clock: Clock,
+                 token_issuer: DeviceTokenIssuer | None = None,
                  remote_id_generator: Callable[[], str] = secure_remote_id):
         self._uow = uow_factory
         self._settings = settings
         self._clock = clock
+        self._tokens = token_issuer
         self._next_remote_id = remote_id_generator
 
     # ------------------------------------------------------------------ views
@@ -92,9 +104,9 @@ class DeviceService:
             raise _not_found()
         return device
 
-    def _audit(self, uow: UnitOfWork, event: str, outcome: AuditOutcome, principal: Principal, ctx: RequestContext,
-               device_id: uuid.UUID | None = None, **details) -> None:
-        uow.audit.add(event, outcome, actor_user_id=principal.user_id, actor_device_id=device_id,
+    def _audit(self, uow: UnitOfWork, event: str, outcome: AuditOutcome, principal: Principal | None,
+               ctx: RequestContext, device_id: uuid.UUID | None = None, **details) -> None:
+        uow.audit.add(event, outcome, actor_user_id=principal.user_id if principal else None, actor_device_id=device_id,
                       subject_type="device" if device_id else None, subject_id=str(device_id) if device_id else None,
                       ip_address=ctx.ip, request_id=ctx.request_id, details=details or None)
 
@@ -165,6 +177,123 @@ class DeviceService:
             self._audit(uow, "device.registered", AuditOutcome.SUCCESS, principal, ctx, device.id, remote_id=remote_id)
             uow.commit()
             return self._view(device, key)
+
+    # ------------------------------------------------ without an account (V0009)
+
+    def create_anonymous_challenge(self, public_key: bytes, device_name: str, os_name: str | None,
+                                   os_version: str | None, client_version: str | None) -> DeviceRegistrationChallenge:
+        if not device_proof.valid_public_key(public_key):
+            raise InputRejectedError("public_key", "invalid", "The public key is not a valid Ed25519 key.")
+        now = self._clock.now()
+        with self._uow() as uow:
+            uow.device_challenges.purge_registration(None, before=now)
+            if uow.devices.find_key_by_fingerprint(hashlib.sha256(public_key).digest()) is not None:
+                raise _key_taken()
+            challenge = uow.device_challenges.add_registration(DeviceRegistrationChallenge(
+                user_id=None, auth_session_id=None, public_key=public_key, device_name=device_name,
+                os_name=os_name, os_version=os_version, client_version=client_version,
+                nonce=secrets.token_bytes(32), created_at=now,
+                expires_at=now + timedelta(seconds=self._settings.device_challenge_ttl_seconds)))
+            uow.commit()
+            return challenge
+
+    def register_anonymous(self, challenge_id: uuid.UUID, signature: bytes, ctx: RequestContext) -> DeviceView:
+        now = self._clock.now()
+        with self._uow() as uow:
+            challenge = uow.device_challenges.consume_registration(challenge_id, None, now)
+            if challenge is None:
+                self._audit(uow, "device.register", AuditOutcome.FAILURE, None, ctx, reason="invalid_challenge")
+                uow.commit()
+                raise _invalid_challenge()
+            message = device_proof.anonymous_registration_message(challenge.id, challenge.nonce, challenge.public_key)
+            if not device_proof.verify(challenge.public_key, signature, message):
+                self._audit(uow, "device.register", AuditOutcome.FAILURE, None, ctx, reason="invalid_signature")
+                uow.commit()   # the challenge stays consumed: one guess per challenge
+                raise _invalid_signature()
+            if uow.devices.find_key_by_fingerprint(challenge.key_fingerprint) is not None:
+                raise _key_taken()
+            remote_id = self._allocate_remote_id(uow)
+            device = Device(owner_user_id=None, remote_id=remote_id, display_name=challenge.device_name,
+                            os_name=challenge.os_name, os_version=challenge.os_version,
+                            client_version=challenge.client_version, created_at=now, updated_at=now)
+            try:
+                key = uow.devices.add(device, challenge.public_key)
+            except ConflictError as exc:
+                if exc.constraint == "UQ_device_keys_fingerprint":
+                    raise _key_taken() from exc
+                raise
+            self._audit(uow, "device.registered", AuditOutcome.SUCCESS, None, ctx, device.id, remote_id=remote_id,
+                        anonymous=True)
+            uow.commit()
+            return self._view(device, key)
+
+    def token_challenge(self, device_id: uuid.UUID) -> DeviceAuthChallenge:
+        """Nonce for a device token. Unknown and revoked devices look the same (not found)."""
+        now = self._clock.now()
+        with self._uow() as uow:
+            device = uow.devices.get(device_id)
+            if device is None or device.status is not DeviceStatus.ACTIVE or uow.devices.active_key(device_id) is None:
+                raise _not_found()
+            challenge = uow.device_challenges.add_device(DeviceAuthChallenge(
+                device_id=device.id, nonce=secrets.token_bytes(32), created_at=now,
+                expires_at=now + timedelta(seconds=self._settings.device_challenge_ttl_seconds)))
+            uow.commit()
+            return challenge
+
+    def issue_token(self, device_id: uuid.UUID, challenge_id: uuid.UUID, signature: bytes,
+                    ctx: RequestContext) -> tuple[str, DeviceView]:
+        """A device token for a valid signature over the token message. Counts as a heartbeat."""
+        if self._tokens is None:
+            raise DependencyUnavailableError()
+        now = self._clock.now()
+        with self._uow() as uow:
+            device = uow.devices.get(device_id)
+            if device is None:
+                raise _invalid_challenge()
+            challenge = uow.device_challenges.consume_device(challenge_id, device.id, now)
+            key = uow.devices.active_key(device.id)
+            if challenge is None or key is None or device.status is not DeviceStatus.ACTIVE:
+                self._audit(uow, "device.auth", AuditOutcome.FAILURE, None, ctx, device.id, reason="invalid_challenge")
+                uow.commit()
+                raise _invalid_challenge()
+            if not device_proof.verify(key.public_key, signature,
+                                       device_proof.token_message(challenge.id, challenge.nonce, device.id)):
+                self._audit(uow, "device.auth", AuditOutcome.FAILURE, None, ctx, device.id, reason="invalid_signature")
+                uow.commit()
+                raise _invalid_signature()
+            uow.devices.record_presence(device.id, now, ctx.ip)
+            self._audit(uow, "device.auth", AuditOutcome.SUCCESS, None, ctx, device.id)
+            uow.commit()
+            device.last_seen_at = now
+            return self._tokens.issue(device.id, key.id), self._view(device, key)
+
+    def authenticate_device(self, token: str) -> DevicePrincipal:
+        if self._tokens is None:
+            raise _invalid_device_token()
+        try:
+            claims = self._tokens.verify(token)
+        except InvalidAccessToken:
+            raise _invalid_device_token() from None
+        with self._uow() as uow:
+            device = uow.devices.get(claims.device_id)
+            key = uow.devices.active_key(claims.device_id) if device else None
+            if device is None or device.status is not DeviceStatus.ACTIVE or key is None or key.id != claims.key_id:
+                raise _invalid_device_token()   # revoked device, or the key was rotated or revoked
+            return DevicePrincipal(device.id, key.id)
+
+    def device_heartbeat(self, caller: DevicePrincipal, ctx: RequestContext) -> DeviceView:
+        now = self._clock.now()
+        with self._uow() as uow:
+            uow.devices.record_presence(caller.device_id, now, ctx.ip)
+            uow.commit()
+        return self.device_self(caller)
+
+    def device_self(self, caller: DevicePrincipal) -> DeviceView:
+        with self._uow() as uow:
+            device = uow.devices.get(caller.device_id)
+            if device is None:
+                raise _invalid_device_token()
+            return self._view(device, uow.devices.active_key(device.id))
 
     # ------------------------------------------------------------------ reads
 

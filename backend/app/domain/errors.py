@@ -65,6 +65,12 @@ class RateLimitedError(DomainError):
         self.retry_after = retry_after
 
 
+class GoneError(DomainError):
+    """410. The resource existed but can no longer be acted on. Codes: request_expired."""
+    code = "gone"
+    default_message = "This resource is no longer available."
+
+
 class ProofRejectedError(DomainError):
     """400. A device challenge or signature was not accepted. Codes: invalid_challenge, invalid_signature."""
     code = "invalid_challenge"

@@ -46,7 +46,7 @@ def create_device(db, owner_id, remote_id=None, key=None) -> tuple[Device, bytes
 
 def test_migration_version(runtime_db):
     with runtime_db.unit_of_work() as uow:
-        assert uow.migrations.current_version() == 8
+        assert uow.migrations.current_version() == 9
 
 
 def test_user_add_normalises_email_and_reads_server_defaults(runtime_db):

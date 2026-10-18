@@ -1,4 +1,5 @@
-"""Real device gateway and key storage. The fake server verifies signatures with the backend's code."""
+"""Real device gateway (registration without an account, device tokens) and key storage.
+The fake server verifies signatures with the backend's code."""
 
 from __future__ import annotations
 
@@ -17,9 +18,6 @@ from fabremote.device import (PHASE_3D_REASON, UNEXPECTED, UNREACHABLE, ApiDevic
                               GatewayError)
 from fabremote.device_identity import DeviceIdentity, DpapiKeyStore, MemoryKeyStore, StoredIdentity
 
-USER_ID = str(uuid.uuid4())
-
-
 # ------------------------------------------------------------ message format
 
 
@@ -28,6 +26,9 @@ def test_client_and_server_sign_identical_messages():
     assert client_proof.registration_message(cid, nonce, uid, key) == server_proof.registration_message(cid, nonce, uid, key)
     assert client_proof.presence_message(cid, nonce, did) == server_proof.presence_message(cid, nonce, did)
     assert client_proof.rotation_message(cid, nonce, did, key) == server_proof.rotation_message(cid, nonce, did, key)
+    assert (client_proof.anonymous_registration_message(cid, nonce, key)
+            == server_proof.anonymous_registration_message(cid, nonce, key))
+    assert client_proof.token_message(cid, nonce, did) == server_proof.token_message(cid, nonce, did)
 
 
 # ------------------------------------------------------------ key storage
@@ -72,7 +73,8 @@ def test_store_location_is_per_server_and_overridable(tmp_path, monkeypatch):
 
 
 class FakeDeviceServer:
-    """Implements the device endpoints the gateway uses, with real signature verification."""
+    """Implements the device endpoints the gateway uses (no account), with real signature
+    verification by the backend's code. Also plays the client's device-token store."""
 
     def __init__(self):
         self.devices: dict[str, dict] = {}
@@ -82,16 +84,26 @@ class FakeDeviceServer:
         self.fail: dict[str, ApiError] = {}
         self.drop_register_response = False
         self.online_after_heartbeat = True
+        self.token: str | None = None
+        self.valid_tokens: set[str] = set()
 
     def _check(self, name):
         if name in self.fail:
-            raise self.fail[name]
+            raise self.fail.pop(name) if name.endswith("_once") else self.fail[name]
 
     def _record(self, name, **body):
         self.requests.append((name, body))
         self._check(name)
 
-    def registration_challenge(self, public_key_b64, device_name, os_name, os_version, client_version):
+    # client token store
+    @property
+    def has_device_token(self) -> bool:
+        return self.token is not None
+
+    def clear_device_token(self) -> None:
+        self.token = None
+
+    def anonymous_registration_challenge(self, public_key_b64, device_name, os_name, os_version, client_version):
         self._record("registration_challenge", public_key=public_key_b64, device_name=device_name)
         key = base64.b64decode(public_key_b64)
         if any(k == key for k in self.keys.values()):
@@ -100,45 +112,50 @@ class FakeDeviceServer:
         self.challenges[cid] = {"nonce": bytes(range(32)), "key": key, "name": device_name}
         return {"challenge_id": cid, "nonce": base64.b64encode(bytes(range(32))).decode()}
 
-    def register_device(self, challenge_id, signature_b64):
+    def anonymous_register(self, challenge_id, signature_b64):
         self._record("register_device", challenge_id=challenge_id, signature=signature_b64)
         ch = self.challenges.pop(challenge_id)
-        message = server_proof.registration_message(uuid.UUID(challenge_id), ch["nonce"], uuid.UUID(USER_ID), ch["key"])
+        message = server_proof.anonymous_registration_message(uuid.UUID(challenge_id), ch["nonce"], ch["key"])
         if not server_proof.verify(ch["key"], base64.b64decode(signature_b64), message):
             raise ApiError(400, "invalid_signature", "x")
         did = str(uuid.uuid4())
-        self.devices[did] = {"id": did, "remote_id": "105280964", "display_name": ch["name"], "status": "active",
-                             "identity_verified": True, "online": False,
+        self.devices[did] = {"id": did, "remote_id": str(105280964 + len(self.devices)), "display_name": ch["name"],
+                             "status": "active", "identity_verified": True, "online": False,
                              "key_fingerprint": hashlib.sha256(ch["key"]).hexdigest()}
         self.keys[did] = ch["key"]
         if self.drop_register_response:
             raise ApiError(0, "network_error", "lost")
         return dict(self.devices[did])
 
-    def get_device(self, device_id):
-        self._record("get_device", device_id=device_id)
-        if device_id not in self.devices:
+    def token_challenge(self, device_id):
+        self._record("token_challenge", device_id=device_id)
+        if device_id not in self.devices or self.devices[device_id]["status"] != "active":
             raise ApiError(404, "not_found", "x")
-        return dict(self.devices[device_id])
-
-    def list_devices(self):
-        self._record("list_devices")
-        return [dict(d) for d in self.devices.values()]
-
-    def device_challenge(self, device_id):
-        self._record("device_challenge", device_id=device_id)
         cid = str(uuid.uuid4())
         self.challenges[cid] = {"nonce": bytes(range(1, 33)), "device": device_id}
         return {"challenge_id": cid, "nonce": base64.b64encode(bytes(range(1, 33))).decode()}
 
-    def device_presence(self, device_id, challenge_id, signature_b64):
-        self._record("device_presence", device_id=device_id, challenge_id=challenge_id, signature=signature_b64)
+    def device_token(self, device_id, challenge_id, signature_b64):
+        self._record("device_token", device_id=device_id, challenge_id=challenge_id, signature=signature_b64)
         ch = self.challenges.pop(challenge_id)
-        message = server_proof.presence_message(uuid.UUID(challenge_id), ch["nonce"], uuid.UUID(device_id))
+        message = server_proof.token_message(uuid.UUID(challenge_id), ch["nonce"], uuid.UUID(device_id))
         if not server_proof.verify(self.keys[device_id], base64.b64decode(signature_b64), message):
             raise ApiError(400, "invalid_signature", "x")
-        self.devices[device_id]["online"] = self.online_after_heartbeat
-        return dict(self.devices[device_id])
+        self.token = f"token-{uuid.uuid4().hex}"
+        self.valid_tokens.add(self.token)
+        return {"device_token": self.token, "token_type": "device", "expires_in": 600,
+                "device": dict(self.devices[device_id])}
+
+    def _device_for_token(self) -> dict:
+        if self.token not in self.valid_tokens:
+            raise ApiError(401, "invalid_device_token", "x")
+        return next(d for d in self.devices.values() if d["status"] == "active")
+
+    def device_heartbeat(self):
+        self._record("device_heartbeat")
+        device = self._device_for_token()
+        device["online"] = self.online_after_heartbeat
+        return dict(device)
 
 
 @pytest.fixture
@@ -152,17 +169,17 @@ def store():
 
 
 def gateway(server, store) -> ApiDeviceGateway:
-    return ApiDeviceGateway(server, DeviceIdentity(store), USER_ID)
+    return ApiDeviceGateway(server, DeviceIdentity(store))
 
 
 # ------------------------------------------------------------ registration
 
 
-def test_register_verify_and_heartbeat(server, store):
+def test_register_without_an_account_verify_and_heartbeat(server, store):
     g = gateway(server, store)
     registration = g.register("OFFICE-PC")
     assert registration.remote_id == "105280964" and g.has_local_device()
-    assert g.verify_identity() is True
+    assert g.verify_identity() is True and server.has_device_token
     assert g.is_online() is True
 
 
@@ -176,30 +193,24 @@ def test_private_key_is_never_sent(server, store):
         assert form not in sent
 
 
-def test_lost_register_response_is_adopted_not_duplicated(server, store):
+def test_lost_register_response_starts_over_with_a_new_key(server, store):
     g = gateway(server, store)
     server.drop_register_response = True
     with pytest.raises(GatewayError) as info:
         g.register("OFFICE-PC")
     assert info.value.user_message == UNREACHABLE and not g.has_local_device()
     server.drop_register_response = False
-    registration = g.register("OFFICE-PC")       # retry with the same stored key
-    assert registration.remote_id == "105280964" and len(server.devices) == 1
-
-
-def test_key_registered_to_someone_else_is_discarded(server, store):
-    g = gateway(server, store)
-    public = DeviceIdentity(store).ensure_key()
-    server.keys["other-account-device"] = public   # present on the server, not in this user's list
-    with pytest.raises(GatewayError):
+    with pytest.raises(GatewayError):                # the stored key is already taken on the server
         g.register("OFFICE-PC")
-    assert store.identity is None                  # a fresh key will be created next time
+    assert store.identity is None                    # discarded; the next attempt uses a new key
+    registration = g.register("OFFICE-PC")
+    assert registration.remote_id != "105280964"     # the lost Remote ID is never reissued
+    assert g.verify_identity() is True
 
 
 @pytest.mark.parametrize("error, expected", [
     (ApiError(0, "network_error", "x"), UNREACHABLE),
     (ApiError(404, "not_found", "x"), PHASE_3D_REASON),
-    (ApiError(409, "device_limit_reached", "x"), "maximum number of registered devices"),
     (ApiError(429, "rate_limited", "x"), "Too many attempts"),
     (ApiError(503, "dependency_unavailable", "x"), "temporarily unavailable"),
     (ApiError(422, "validation_error", "PWD=secret internal"), "Registration failed. Try again."),
@@ -211,10 +222,23 @@ def test_registration_errors_map_to_safe_messages(server, store, error, expected
     assert expected in info.value.user_message and "secret" not in info.value.user_message
 
 
-def test_expired_session_requires_sign_in(server, store):
-    server.fail["registration_challenge"] = ApiError(401, "session_expired", "x")
-    with pytest.raises(AuthRequiredError):
-        gateway(server, store).register("OFFICE-PC")
+def test_device_proof_failures_never_ask_the_user_to_sign_in(server, store):
+    g = gateway(server, store)
+    g.register("OFFICE-PC")
+    server.fail["device_heartbeat"] = ApiError(401, "invalid_device_token", "x")
+    with pytest.raises(GatewayError) as info:
+        g.is_online()
+    assert not isinstance(info.value, AuthRequiredError)
+    assert "could not be confirmed" in info.value.user_message
+
+
+def test_expired_device_token_is_renewed_once(server, store):
+    g = gateway(server, store)
+    g.register("OFFICE-PC")
+    g.verify_identity()
+    server.valid_tokens.clear()                      # the server no longer accepts the old token
+    assert g.is_online() is True
+    assert [name for name, _ in server.requests].count("device_token") == 2
 
 
 @pytest.mark.parametrize("bad", [
@@ -222,12 +246,12 @@ def test_expired_session_requires_sign_in(server, store):
     {"status": "weird"}, {"online": "yes"}, {"identity_verified": False},
 ])
 def test_invalid_server_responses_are_rejected(server, store, bad):
-    original = server.register_device
+    original = server.anonymous_register
 
     def tampered(challenge_id, signature_b64):
         return {**original(challenge_id, signature_b64), **bad}
 
-    server.register_device = tampered
+    server.anonymous_register = tampered
     with pytest.raises(GatewayError) as info:
         gateway(server, store).register("OFFICE-PC")
     assert info.value.user_message == UNEXPECTED
@@ -235,7 +259,7 @@ def test_invalid_server_responses_are_rejected(server, store, bad):
 
 
 def test_malformed_challenge_is_rejected(server, store):
-    server.registration_challenge = lambda *a: {"challenge_id": str(uuid.uuid4()), "nonce": "AAAA"}
+    server.anonymous_registration_challenge = lambda *a: {"challenge_id": str(uuid.uuid4()), "nonce": "AAAA"}
     with pytest.raises(GatewayError) as info:
         gateway(server, store).register("OFFICE-PC")
     assert info.value.user_message == UNEXPECTED
@@ -246,8 +270,9 @@ def test_malformed_challenge_is_rejected(server, store):
 
 def test_existing_registration_is_confirmed_with_the_server(server, store):
     gateway(server, store).register("OFFICE-PC")
+    server.clear_device_token()
     fresh = gateway(server, store)          # app restart
-    assert fresh.existing().remote_id == "105280964"
+    assert fresh.existing().remote_id == "105280964" and server.has_device_token
 
 
 @pytest.mark.parametrize("change", ["deleted", "revoked", "rotated"])
@@ -261,6 +286,7 @@ def test_stale_local_registration_is_forgotten(server, store, change):
     else:
         server.devices[device_id]["key_fingerprint"] = "0" * 64
     assert gateway(server, store).existing() is None and store.identity is None
+    assert not server.has_device_token
 
 
 def test_offline_comes_from_the_server(server, store):

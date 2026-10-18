@@ -63,6 +63,9 @@ class Settings(BaseSettings):
     device_challenge_ttl_seconds: int = Field(120, ge=30, le=600)
     presence_ttl_seconds: int = Field(90, ge=30, le=3600)   # online only if a verified heartbeat is this recent
     max_devices_per_user: int = Field(10, ge=1, le=100)
+    device_token_ttl_seconds: int = Field(600, ge=60, le=3600)       # device-only token (signed proof of the key)
+    connection_request_ttl_seconds: int = Field(45, ge=15, le=120)   # how long the target has to Accept
+    session_presence_timeout_seconds: int = Field(30, ge=10, le=300)  # a session ends if either side is silent longer
 
     site_dir: str | None = None                   # folder with the landing page (web/site); unset = not served
 

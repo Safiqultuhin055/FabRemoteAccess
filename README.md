@@ -11,7 +11,7 @@
 ![Platform](https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-informational)
 ![Backend](https://img.shields.io/badge/backend-FastAPI-009688)
 ![Database](https://img.shields.io/badge/database-SQL%20Server-CC2927)
-![Tests](https://img.shields.io/badge/tests-472%20passing-brightgreen)
+![Tests](https://img.shields.io/badge/tests-520%20passing-brightgreen)
 
 </div>
 
@@ -19,7 +19,7 @@
 
 Fabulous Remote lets a helper connect to someone else's Windows computer **only after that person approves the request on their own screen**. Every session is tied to a signed-in account and a registered device, travels over encrypted channels, can be ended instantly by either side, and is recorded in an append-only audit trail.
 
-> **Project status: preview, not production-ready.** Accounts, sign-in, device registration and verified presence work end to end. Connection requests, consent, screen sharing and remote control are **not implemented yet** (see [Roadmap](#roadmap)). Nothing in this repository can view or control another computer today.
+> **Project status: preview, not production-ready.** Accounts, device registration (also without an account), verified presence, **connection requests and consent** work end to end. Screen sharing and remote control are **not implemented yet** (see [Roadmap](#roadmap)): a session today only confirms that the other person accepted. Nothing in this repository can view or control another computer.
 
 ## Contents
 
@@ -43,8 +43,8 @@ Fabulous Remote lets a helper connect to someone else's Windows computer **only 
 | **Accounts** | Invitation-only accounts, Argon2id passwords, lockout and rate limits, admin invitations, bootstrap CLI | MFA, password reset, email delivery |
 | **Sessions** | 10-minute access tokens, rotating refresh tokens with reuse detection, browser sessions with CSRF protection, instant logout and revocation | — |
 | **Devices** | Ed25519 device keys (DPAPI-protected), server-assigned **never-reused** 9-digit Remote IDs, signed presence heartbeats, key rotation, revocation | Device-only tokens, presence WebSocket |
-| **Desktop app** | Sign-in, "This device" card with real registration and Online/Offline status, Windows installer | Connection requests and consent dialog, session banner |
-| **Remote assistance** | — | Consent workflow (3e), WebRTC screen sharing (6), consent-controlled remote input (7) |
+| **Desktop app** | Opens without signing in, registers this computer without an account, Connect → consent dialog → session banner with Disconnect, Windows installer | Session history, address book |
+| **Remote assistance** | Consent workflow (3e): helper signs in, the helped computer needs no account and must Accept every request | WebRTC screen sharing (6), consent-controlled remote input (7) |
 | **Web** | Landing page with honest feature labels, installer download | Web portal (devices, history, revocation) |
 | **Operations** | Health and readiness probes, structured logging with secret redaction, data-retention procedure | Hosted deployment, code signing |
 
@@ -81,7 +81,7 @@ Media will flow peer to peer over WebRTC (DTLS-SRTP); the server never sees scre
 FabRemoteAccess/
 ├── backend/            FastAPI service: app/ (api, services, db, security, domain), tests/
 ├── desktop/            PySide6 client: fabremote/, packaging/ (PyInstaller + Inno Setup), tests/
-├── database/           migrations/ (V0001–V0008 + rollback/), permissions/ (P001–P003, PR001), tests/
+├── database/           migrations/ (V0001–V0009 + rollback/), permissions/ (P001–P003, PR001), tests/
 ├── web/site/           Landing page (HTML, Bootstrap 5, CSS, JS)
 ├── deploy/             Server deployment kit: HTTPS launcher, internal CA tool, production config template
 ├── tools/              Read-only database inventory tool
@@ -160,7 +160,7 @@ All settings come from `FR_*` environment variables or an untracked `.env` file.
 ## Testing
 
 ```powershell
-python -m pytest           # 472 tests: database, tools, backend (unit + integration), desktop
+python -m pytest           # 520 tests: database, tools, backend (unit + integration), desktop
 ```
 
 | Suite | Scope |
@@ -204,8 +204,8 @@ Requirements, threat model, implementation status and known gaps: [docs/SECURITY
 | 1 | Architecture and security baseline | ✅ Done |
 | 2 | Database design, migrations, least-privilege roles | ✅ Done |
 | 3a–3d | Backend foundation, data layer, authentication, device registration | ✅ Done |
-| 3e | Connection requests and target-side consent | ⏳ Next |
-| 3f | Audit API, security review of Phase 3 | Planned |
+| 3e | Connection requests and target-side consent (helped computer needs no account) | ✅ Done (preview) |
+| 3f | Audit API, security review of Phase 3 | ⏳ Next |
 | 4 | Desktop client completion | 🚧 Preview |
 | 5 | Web portal | 🚧 Landing page done |
 | 6 | WebRTC screen sharing (view only) | Planned |

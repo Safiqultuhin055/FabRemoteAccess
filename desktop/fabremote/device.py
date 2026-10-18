@@ -4,10 +4,9 @@ The state object refuses combinations the server could never confirm (a malforme
 ID, "Online" without a verified identity), so the UI cannot display them by accident.
 
 Gateways:
-- ApiDeviceGateway: the real server (Phase 3d endpoints). Signs challenges with the local
-  device key; every server response is validated before it reaches the UI.
-- SignedOutGateway: before sign-in. Registration needs an account, so it contacts nothing
-  and the card asks the user to sign in.
+- ApiDeviceGateway: the real server. Registers without an account (V0009) and signs
+  challenges with the local device key; every server response is validated before it
+  reaches the UI.
 - PreviewDeviceGateway: sample data for reviewing the UI states. Only used when the app is
   started with --preview-device-states; everything it returns is marked as preview.
 """
@@ -26,15 +25,14 @@ from typing import Protocol
 
 from fabremote import __version__
 from fabremote import remote_id as rid
-from fabremote.api_client import ApiClient, ApiError
-from fabremote.device_identity import DeviceIdentity, presence_message, registration_message
+from fabremote.api_client import DEVICE_TOKEN_ERRORS, ApiClient, ApiError
+from fabremote.device_identity import DeviceIdentity, anonymous_registration_message, token_message
 
 PHASE_3D_REASON = ("This server does not offer device registration yet. "
                    "Your Remote ID will appear here once registration is available.")
 UNREACHABLE = "Cannot reach the server. Check your connection and try again."
 UNEXPECTED = "The server sent an unexpected response. Try again later."
 SESSION_ENDED = "Your session has ended. Please sign in again."
-SIGN_IN_REQUIRED = "Sign in to register this computer and get its Remote ID."
 
 
 class DeviceStatus(Enum):
@@ -108,9 +106,11 @@ class DeviceGateway(Protocol):
 _UUID = re.compile(r"^[0-9a-fA-F-]{36}$")
 
 
-def _map_error(error: ApiError, *, missing_api: bool = False) -> GatewayError:
+def _map_error(error: ApiError, *, missing_api: bool = False, device: bool = False) -> GatewayError:
     if error.status == 0:
         return GatewayError(UNREACHABLE)
+    if error.status == 401 and device:   # this computer's proof failed; signing in would not help
+        return GatewayError("This computer's identity could not be confirmed. Try again.")
     if error.status == 401:
         return AuthRequiredError()
     if error.status == 404 and missing_api:
@@ -164,122 +164,99 @@ def _device(response: object) -> dict:
 
 
 class ApiDeviceGateway:
+    """The real server. Registering this computer needs no account: it proves its key and gets
+    a Remote ID; afterwards a signed challenge yields a short-lived device token for every call."""
+
     supported = True
     unsupported_reason = ""
     preview = False
 
-    def __init__(self, client: ApiClient, identity: DeviceIdentity, user_id: str):
+    def __init__(self, client: ApiClient, identity: DeviceIdentity):
         self._client = client
         self._identity = identity
-        self._user_id = uuid.UUID(user_id)
 
     def has_local_device(self) -> bool:
         return self._identity.device_id is not None
 
-    def existing(self) -> Registration | None:
-        device_id = self._identity.device_id
-        if device_id is None:
-            return None
-        try:
-            device = _device(self._client.get_device(str(device_id)))
-        except ApiError as error:
-            if error.status == 404:            # unknown to this server/account: start again
-                self._identity.forget()
-                return None
-            raise _map_error(error) from None
-        if device["status"] != "active" or device.get("key_fingerprint") != self._fingerprint():
-            self._identity.forget()            # revoked, or the key was rotated elsewhere
-            return None
-        return Registration(device["remote_id"], device["display_name"])
-
     def _fingerprint(self) -> str:
         return hashlib.sha256(self._identity.public_key()).hexdigest()
+
+    def _forget(self) -> None:
+        self._identity.forget()
+        self._client.clear_device_token()
+
+    def _sign_in_device(self) -> dict:
+        """Sign a fresh challenge with the device key; the client keeps the resulting token."""
+        device_id = self._identity.device_id
+        if device_id is None:
+            raise GatewayError(UNEXPECTED)
+        challenge_id, nonce = _challenge(self._client.token_challenge(str(device_id)))
+        signature = self._identity.sign(token_message(challenge_id, nonce, device_id))
+        response = self._client.device_token(str(device_id), str(challenge_id), _b64(signature))
+        return _device(response.get("device") if isinstance(response, dict) else None)
+
+    def with_device_token(self, call):
+        """Run `call` with a valid device token, obtaining a new one once if it was missing or expired."""
+        try:
+            if not self._client.has_device_token:
+                self._sign_in_device()
+            return call()
+        except ApiError as error:
+            if error.code not in DEVICE_TOKEN_ERRORS:
+                raise
+        self._sign_in_device()
+        return call()
+
+    def existing(self) -> Registration | None:
+        if self._identity.device_id is None:
+            return None
+        try:
+            device = self._sign_in_device()
+        except ApiError as error:
+            if error.status == 404 or error.code in ("invalid_challenge", "invalid_signature"):
+                self._forget()                 # unknown or revoked here, or the key no longer matches
+                return None
+            raise _map_error(error, device=True) from None
+        if device["status"] != "active" or device.get("key_fingerprint") != self._fingerprint():
+            self._forget()
+            return None
+        return Registration(device["remote_id"], device["display_name"])
 
     def register(self, device_name: str) -> Registration:
         public_key = self._identity.ensure_key()   # created once and kept, so a retry reuses it
         try:
-            challenge = self._client.registration_challenge(_b64(public_key), device_name, platform.system() or None,
-                                                            platform.release() or None, __version__)
+            challenge_id, nonce = _challenge(self._client.anonymous_registration_challenge(
+                _b64(public_key), device_name, platform.system() or None, platform.release() or None, __version__))
+            signature = self._identity.sign(anonymous_registration_message(challenge_id, nonce, public_key))
+            device = _device(self._client.anonymous_register(str(challenge_id), _b64(signature)))
         except ApiError as error:
             if error.code == "key_already_registered":
-                return self._adopt_existing_registration()
-            raise _map_error(error, missing_api=True) from None
-        challenge_id, nonce = _challenge(challenge)
-        signature = self._identity.sign(registration_message(challenge_id, nonce, self._user_id, public_key))
-        try:
-            device = _device(self._client.register_device(str(challenge_id), _b64(signature)))
-        except ApiError as error:
-            if error.code == "key_already_registered":
-                return self._adopt_existing_registration()
-            raise _map_error(error) from None
+                # An earlier attempt succeeded but its answer was lost. Without the device ID that key
+                # cannot be used, so start over with a new key (the old Remote ID is never reissued).
+                self._forget()
+                raise GatewayError("Registration did not complete. Try again.") from None
+            raise _map_error(error, missing_api=True, device=True) from None
         if device["status"] != "active" or not device["identity_verified"]:
             raise GatewayError(UNEXPECTED)
         self._identity.remember_device(uuid.UUID(device["id"]))
         return Registration(device["remote_id"], device["display_name"])
 
-    def _adopt_existing_registration(self) -> Registration:
-        """A previous attempt succeeded but its response was lost: reuse it instead of duplicating."""
-        fingerprint = self._fingerprint()
-        try:
-            devices = self._client.list_devices()
-        except ApiError as error:
-            raise _map_error(error) from None
-        for item in devices:
-            if isinstance(item, dict) and item.get("key_fingerprint") == fingerprint and item.get("status") == "active":
-                device = _device(item)
-                self._identity.remember_device(uuid.UUID(device["id"]))
-                return Registration(device["remote_id"], device["display_name"])
-        self._identity.forget()                # key belongs to someone else: never reuse it
-        raise GatewayError("This computer's key could not be used. Try registering again.")
-
     def verify_identity(self) -> bool:
-        device_id = self._identity.device_id
-        if device_id is None:
-            raise GatewayError(UNEXPECTED)
+        """The server accepts this computer's signature and reports an active, verified device."""
         try:
-            device = _device(self._client.get_device(str(device_id)))
+            device = self._sign_in_device()
         except ApiError as error:
-            raise _map_error(error) from None
-        return device["status"] == "active" and device["identity_verified"] is True
+            raise _map_error(error, device=True) from None
+        return (device["status"] == "active" and device["identity_verified"] is True
+                and device.get("key_fingerprint") == self._fingerprint())
 
     def is_online(self) -> bool:
-        """Signed heartbeat; the server decides whether the device counts as online."""
-        device_id = self._identity.device_id
-        if device_id is None:
-            raise GatewayError(UNEXPECTED)
+        """Heartbeat with the device token; the server decides whether the device counts as online."""
         try:
-            challenge_id, nonce = _challenge(self._client.device_challenge(str(device_id)))
-            signature = self._identity.sign(presence_message(challenge_id, nonce, device_id))
-            device = _device(self._client.device_presence(str(device_id), str(challenge_id), _b64(signature)))
+            device = _device(self.with_device_token(self._client.device_heartbeat))
         except ApiError as error:
-            raise _map_error(error) from None
+            raise _map_error(error, device=True) from None
         return device["online"] is True
-
-
-# ------------------------------------------------------------------ signed out
-
-
-class SignedOutGateway:
-    """Before sign-in: device registration needs an account, so nothing is contacted."""
-
-    supported = False
-    unsupported_reason = SIGN_IN_REQUIRED
-    preview = False
-
-    def has_local_device(self) -> bool:
-        return False
-
-    def existing(self) -> Registration | None:
-        raise AuthRequiredError()
-
-    def register(self, device_name: str) -> Registration:
-        raise AuthRequiredError()
-
-    def verify_identity(self) -> bool:
-        raise AuthRequiredError()
-
-    def is_online(self) -> bool:
-        raise AuthRequiredError()
 
 
 # ------------------------------------------------------------------ preview

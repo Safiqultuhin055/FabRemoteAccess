@@ -27,3 +27,10 @@ class Principal:
 
     def has(self, role: Role) -> bool:
         return role in self.roles
+
+
+@dataclass(frozen=True)
+class DevicePrincipal:
+    """A device that proved possession of its active key (device token). No user account implied."""
+    device_id: uuid.UUID
+    key_id: uuid.UUID

@@ -86,7 +86,7 @@ Status: initial version (Phase 1). Reviewed again at the end of every phase; ful
 | T14 | Signalling / API flooding | DoS | Reverse-proxy limits, per-connection message size/rate caps, idle timeouts |
 | T15 | Leakage of DB credentials | Information disclosure | Never in code, docs or logs; untracked `.env`; secret store in production; rotate if exposed |
 
-## 4. Implementation status (Phases 3c–3d, verified offline on LocalDB)
+## 4. Implementation status (Phases 3c–3e, verified offline on LocalDB)
 
 | Control | Implemented in | Verified by |
 |---|---|---|
@@ -108,6 +108,12 @@ Status: initial version (Phase 1). Reviewed again at the end of every phase; ful
 | Verified presence: signed heartbeat, server-computed expiry (90 s); revoked or unverified devices never online | `services/devices.py` | presence tests |
 | Key rotation signed by old and new key; revocation cascades to keys and bound sessions | `services/devices.py` | rotation and revocation tests |
 | Desktop private key stays on the device, DPAPI-encrypted per Windows user; only public key and signatures are sent | `desktop/fabremote/device_identity.py` | `test_device_gateway.py` (DPAPI round trip, key never sent) |
+| Computers without an account (V0009): registration by key proof alone, own purpose prefix (signed-in messages cannot be replayed), rate-limited per IP | `services/devices.py`, `security/device_proof.py` | `test_connections_api.py` |
+| Device tokens: 10 min, separate key and type from access tokens, bound to the active key ID, re-checked on every request; revocation or rotation ends them | `security/tokens.py`, `api/auth_deps.py` | token tests (wrong key, revoked device, not interchangeable with access tokens) |
+| Consent: only a signed-in, verified user can ask; only the target device can approve; approval and session creation in one transaction; one live session per target | `services/connections.py`, `UX_sessions_live_target` | flow, stranger, double-approve, expiry (410), cancel and concurrency tests |
+| Refusals are indistinguishable (unknown, revoked, offline, blocked, policy, busy → same 404); requester never sees the target's device name | `services/connections.py` | `test_every_refusal_looks_the_same_to_the_requester` |
+| Consent dialog: requester's name and email from the server, scam warning, Reject is default, closing rejects, expires by itself; optional block | `desktop/fabremote/ui/consent_dialog.py` | `test_connection.py` |
+| Sessions end on Disconnect from either side or when either side is silent for 30 s | `sessions.controller_seen_at/target_seen_at` (V0009) | `test_session_ends_when_one_side_goes_silent` |
 
 ### Not yet verified / known gaps
 
@@ -120,8 +126,11 @@ Status: initial version (Phase 1). Reviewed again at the end of every phase; ful
 - Timing equivalence is verified structurally (same code path), not by measurement.
 - Nothing has run against the shared DEV database: it has no application login yet (P003), and the backend refuses `sa`.
 - Penetration testing and dependency vulnerability scanning have not been done (Phase 9).
-- **Devices:** presence requires the owner's signed-in session plus the device key; device-only tokens and the presence WebSocket come with Phase 3e. The device limit check is serialised per user with an application lock. DPAPI protects the key from other Windows users and offline copies, but not from malware running as the same user. There is no hardware-backed key storage (TPM) yet. A `key_compromised` revocation stops future use but cannot undo past sessions (there are none before 3e).
-- **Shared DEV database:** at schema version 8, but no application logins are mapped yet (P003), so the backend still cannot use it.
+- **Computers without an account:** anyone who can reach the server can register a computer (10 per minute per IP) and each permanently uses a Remote ID. Such a computer can only *receive* requests and must approve each one; it cannot ask to connect. Run the server only where its users are expected, and add abuse monitoring before opening it to the internet.
+- **No media yet:** a session is a recorded consent with no screen or input. The consent dialog says so; Phase 6/7 add media under the same session.
+- **Polling, not push:** requests and sessions are polled every 2 s (rate-limited); the presence WebSocket is still planned.
+- **Devices:** signed-in owners still use their session plus the device key for presence; computers without an account use device tokens. The device limit check is serialised per user with an application lock. DPAPI protects the key from other Windows users and offline copies, but not from malware running as the same user. There is no hardware-backed key storage (TPM) yet. A `key_compromised` revocation stops future use but cannot undo past sessions (there are none before 3e).
+- **Shared DEV database:** at schema version 8; this backend expects version 9 (V0009 not applied there yet), and no application logins are mapped (P003), so the backend cannot use it yet.
 
 ## 5. Open security items
 

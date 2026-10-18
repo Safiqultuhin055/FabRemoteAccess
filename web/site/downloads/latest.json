@@ -3,9 +3,9 @@
   "version": "0.4.0",
   "channel": "preview",
   "file": "FabulousRemote-Setup-0.4.0-preview.exe",
-  "size_bytes": 41458192,
-  "sha256": "a4656c3b4f9912a747c5a5ba56ba619ff18b5b119fc2f89e9f2388cdd530f603",
+  "size_bytes": 41492998,
+  "sha256": "5f92c3fdcaa141540254c139ebdd6d9f861a8b1b1790919f98d2e2056be4b806",
   "signed": false,
   "requirements": "Windows 10 or 11, 64-bit",
-  "published_at": "2026-10-18T11:13:51Z"
+  "published_at": "2026-10-18T11:51:34Z"
 }

@@ -1,9 +1,10 @@
 """Device proof-of-possession: what a device signs, and how the server verifies it.
 
 Each message starts with a distinct, versioned purpose prefix, so a signature made for one
-purpose (presence) can never be replayed for another (registration or key rotation). Every
-message includes a single-use server nonce and the challenge ID; registration also binds
-the user and the proposed key, presence and rotation bind the device.
+purpose (presence) can never be replayed for another (registration, a device token or key
+rotation). Every message includes a single-use server nonce and the challenge ID;
+registration also binds the user (or, without an account, only the proposed key), and
+presence, device tokens and rotation bind the device.
 
 The desktop client builds identical messages (desktop/fabremote/device_identity.py); a test
 checks both implementations byte for byte.
@@ -22,11 +23,21 @@ from app.domain.constants import ED25519_PUBLIC_KEY_BYTES
 REGISTER = b"fabremote-device-register-v1\x00"
 PRESENCE = b"fabremote-device-presence-v1\x00"
 ROTATE = b"fabremote-device-rotate-v1\x00"
+REGISTER_ANONYMOUS = b"fabremote-device-register-anonymous-v1\x00"
+TOKEN = b"fabremote-device-token-v1\x00"
 SIGNATURE_BYTES = 64
 
 
 def registration_message(challenge_id: uuid.UUID, nonce: bytes, user_id: uuid.UUID, public_key: bytes) -> bytes:
     return REGISTER + challenge_id.bytes + nonce + user_id.bytes + hashlib.sha256(public_key).digest()
+
+
+def anonymous_registration_message(challenge_id: uuid.UUID, nonce: bytes, public_key: bytes) -> bytes:
+    return REGISTER_ANONYMOUS + challenge_id.bytes + nonce + hashlib.sha256(public_key).digest()
+
+
+def token_message(challenge_id: uuid.UUID, nonce: bytes, device_id: uuid.UUID) -> bytes:
+    return TOKEN + challenge_id.bytes + nonce + device_id.bytes
 
 
 def presence_message(challenge_id: uuid.UUID, nonce: bytes, device_id: uuid.UUID) -> bytes:

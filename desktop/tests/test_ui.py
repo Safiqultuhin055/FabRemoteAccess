@@ -40,8 +40,9 @@ def test_remote_id_rules(text, valid, shown):
 
 def test_home_shows_no_fabricated_device_state(window):
     assert window.your_id.text() == "Not registered"
-    assert not window.connect_button.isEnabled()
-    assert "Phase 3e" in window.connect_button.toolTip()
+    assert not window.connect_button.isEnabled()          # this computer is not registered yet
+    assert "Register this computer" in window.connect_button.toolTip()
+    assert window.session_banner.isHidden()
     texts = " ".join(label.text() for label in window.findChildren(type(window.your_id)))
     assert "Secure connection" not in texts and "Ready to connect" not in texts
 

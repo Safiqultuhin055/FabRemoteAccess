@@ -25,7 +25,7 @@ flowchart LR
 
 ## 2. Database (DBA)
 
-`FabRemotesDB` must be at schema version 8 (V0001–V0008 and P002). Then:
+`FabRemotesDB` must be at schema version 9 (V0001–V0009, with P002 run after V0008). V0009 adds no tables, so P002 need not be re-run after it. Then:
 
 1. Create three **dedicated logins** (never `sa`): migration, application, maintenance.
 2. Map them to the roles:

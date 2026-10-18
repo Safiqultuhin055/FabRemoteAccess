@@ -2,16 +2,16 @@
 
 Legend: **Done** · **In progress** · **Planned** (phase) · **Out of scope** (first release)
 
-Last updated: 2026-10-18 (Phase 3c, offline)
+Last updated: 2026-10-18 (Phase 3e, offline on LocalDB)
 
 ## Phases
 
 | Phase | Description | Status |
 |---|---|---|
 | 1 | Repository inspection and architecture documentation | **Done** |
-| 2 | Database design and safe migrations | **Done**; applied to a DEV environment up to version 8. Pending there: dedicated least-privilege logins (P003) |
-| 3 | FastAPI backend + tests | **In progress**: 3a, 3b, 3c (authentication) and **3d (device registration, Remote IDs, verified presence, key rotation)** done offline on LocalDB; 3e–3f awaiting approval |
-| 4 | PySide6 desktop client integration | **Preview** (`desktop/`): sign-in, account, live server status, sign-out; "This device" card with all registration/presence states (live: Not registered, Register disabled until Phase 3d; other states only in labelled preview mode) |
+| 2 | Database design and safe migrations | **Done**; V0001–V0009 written. DEV environment at version 8: **V0009 not applied there yet** (needs approval); dedicated least-privilege logins (P003) pending |
+| 3 | FastAPI backend + tests | **In progress**: 3a–3d and **3e (computers without an account, device tokens, connection requests, consent, sessions)** done offline on LocalDB; 3f (audit API, security review) planned |
+| 4 | PySide6 desktop client integration | **Preview** (`desktop/`): opens without signing in; registers this computer without an account; Connect (signed in) → consent dialog on the other computer → session banner on both sides with Disconnect |
 | 5 | Landing page and web portal | **Landing page done** (`web/site`, served by the backend when `FR_SITE_DIR` is set); web portal planned |
 | 6 | Screen-sharing-only WebRTC proof of concept | Planned |
 | 7 | Consent-controlled remote input (separate review) | Planned |
@@ -24,8 +24,8 @@ Last updated: 2026-10-18 (Phase 3c, offline)
 | Feature | Status |
 |---|---|
 | User accounts, login/logout | **API done** (3c): invitation-only accounts, desktop tokens, browser sessions, logout, `/auth/me`; no UI yet |
-| Device registration and Remote ID | **Done** (3d): API + desktop "Register This Device" with DPAPI-protected key; server-assigned, never-reused IDs |
-| Connection request / consent dialog / reject / timeout | Planned (3, 4) |
+| Device registration and Remote ID | **Done** (3d, 3e): with or without an account; DPAPI-protected key; server-assigned, never-reused IDs |
+| Connection request / consent dialog / reject / block / timeout | **Done** (3e): helper signs in; the helped computer needs no account and must Accept every request; sessions end on Disconnect or when either side goes silent |
 | Recent sessions, favorites, address book | Planned (3, 4) |
 | Web portal: devices, history, revoke sessions, profile | Planned (5) |
 | Landing page | **Done** (marketing page; every feature labelled In development / Planned) |
@@ -48,4 +48,6 @@ Last updated: 2026-10-18 (Phase 3c, offline)
 - Account deletion/anonymisation is a production prerequisite and is not implemented (`DATABASE_DESIGN.md` §14).
 - Remote input will not work on elevated windows or the UAC secure desktop (Windows UIPI); this is intentional until a privileged component is separately reviewed.
 - Python WebRTC performance at high resolutions unverified (measured in Phase 6).
-- Internet use requires a public HTTPS endpoint and TURN server, not yet decided.
+- Internet use requires a public HTTPS endpoint (for requests and consent) and, from Phase 6, a TURN server; neither is decided yet.
+- A session confirms consent only: there is no screen sharing or input yet (Phase 6/7). Requests and sessions are polled every 2 s; the presence WebSocket is planned.
+- Registering a computer without an account is open to anyone who can reach the server (rate-limited per IP); see `SECURITY.md` §4.

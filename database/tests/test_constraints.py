@@ -252,3 +252,50 @@ def test_one_open_invitation_per_email(db):
               "VALUES ('invitee@example.com', CAST(? AS BINARY(32)), DATEADD(DAY, 7, SYSUTCDATETIME()))")
     db.execute(insert, os.urandom(32), as_user=RUNTIME)
     rejects(db, insert, os.urandom(32))
+
+
+# ------------------------------------------------------------------ V0009: devices without an account
+
+
+def new_anonymous_device(db, policy="verified_users"):
+    remote_id = str(100_000_000 + int.from_bytes(os.urandom(4), "big") % 899_999_999)
+    return db.scalar(
+        "INSERT INTO fr.remote_id_registry (remote_id) VALUES (?); "
+        "INSERT INTO fr.devices (owner_user_id, remote_id, display_name, incoming_policy) OUTPUT inserted.id "
+        "VALUES (NULL, ?, ?, ?)", remote_id, remote_id, "Helped PC", policy, as_user=RUNTIME)
+
+
+def test_device_without_owner_is_allowed_with_a_policy_that_needs_no_address_book(db):
+    assert new_anonymous_device(db) is not None
+    assert new_anonymous_device(db, "disabled") is not None
+    with pytest.raises(pyodbc.IntegrityError, match="CK_devices_anonymous_policy"):
+        new_anonymous_device(db, "address_book_only")
+
+
+def test_anonymous_target_can_receive_a_request_from_a_signed_in_requester(db):
+    user = new_user(db)
+    helper, target = new_device(db, user), new_anonymous_device(db)
+    request = new_request(db, user, helper, target)
+    new_session(db, request, user, helper, target)
+    # The requester must still be a real user: a request without one is rejected.
+    with pytest.raises(pyodbc.IntegrityError):
+        new_request(db, None, helper, target, status="pending")
+
+
+@pytest.mark.parametrize("user_null, session_null, ok", [(True, True, True), (True, False, False),
+                                                           (False, True, False)])
+def test_registration_challenge_has_both_owner_fields_or_neither(db, user_null, session_null, ok):
+    user = new_user(db)
+    auth_session = db.scalar(
+        "INSERT INTO fr.auth_sessions (user_id, client_type, expires_at) OUTPUT inserted.id "
+        "VALUES (?, 'desktop', DATEADD(DAY, 1, SYSUTCDATETIME()))", user, as_user=RUNTIME)
+    insert = lambda: db.execute(  # noqa: E731
+        "INSERT INTO fr.device_registration_challenges (user_id, auth_session_id, public_key, device_name, nonce, "
+        "expires_at) VALUES (?, ?, ?, 'PC', ?, DATEADD(MINUTE, 2, SYSUTCDATETIME()))",
+        None if user_null else user, None if session_null else auth_session, os.urandom(32), os.urandom(32),
+        as_user=RUNTIME)
+    if ok:
+        insert()
+    else:
+        with pytest.raises(pyodbc.IntegrityError, match="CK_device_registration_challenges_owner"):
+            insert()

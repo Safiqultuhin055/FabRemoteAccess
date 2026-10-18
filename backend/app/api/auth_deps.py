@@ -5,6 +5,9 @@ Credential handling (docs/API_CONTRACTS.md section 3):
   header is present, and CSRF does not apply.
 - `__Host-fr_session` cookie: browser. Unsafe methods additionally need a matching
   `X-CSRF-Token` header, and a cross-origin `Origin` / `Sec-Fetch-Site` is refused.
+- `X-Device-Token: <device token>`: a device that signed a challenge with its key. Used by
+  the computer being helped (no account) and, next to the bearer token, by a requester to
+  prove which device it is asking from. Never a cookie, so CSRF does not apply.
 """
 
 from __future__ import annotations
@@ -20,11 +23,12 @@ from app.log import request_id_var
 from app.security.csrf import csrf_valid
 from app.security.rate_limit import Limit
 from app.services.auth import AuthService
-from app.services.context import Principal, RequestContext
+from app.services.context import DevicePrincipal, Principal, RequestContext
 from app.services.invitations import InvitationService
 
 SESSION_COOKIE = "__Host-fr_session"
 CSRF_HEADER = "X-CSRF-Token"
+DEVICE_TOKEN_HEADER = "X-Device-Token"
 SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
 
 
@@ -82,6 +86,32 @@ def require_admin(principal: Annotated[Principal, Depends(current_principal)]) -
     return principal
 
 
+def _device_token(request: Request) -> str | None:
+    value = request.headers.get(DEVICE_TOKEN_HEADER)
+    return value.strip() if value and value.strip() else None
+
+
+def current_device(request: Request) -> DevicePrincipal:
+    """The calling device, proven by a device token (`X-Device-Token`). Needs no user account."""
+    token = _device_token(request)
+    if token is None:
+        raise AuthenticationError("A device token is required.", code="device_token_required")
+    return request.app.state.device_service.authenticate_device(token)
+
+
+def session_actor(request: Request, auth: Annotated[AuthService, Depends(get_auth_service)]
+                  ) -> tuple[Principal | None, DevicePrincipal | None]:
+    """A signed-in user, a device, or both. At least one is required."""
+    has_user = request.headers.get("authorization") is not None or bool(request.cookies.get(SESSION_COOKIE))
+    principal = current_principal(request, auth) if has_user else None
+    device = current_device(request) if _device_token(request) else None
+    if principal is None and device is None:
+        raise AuthenticationError()
+    return principal, device
+
+
 CurrentPrincipal = Annotated[Principal, Depends(current_principal)]
 AdminPrincipal = Annotated[Principal, Depends(require_admin)]
+CurrentDevice = Annotated[DevicePrincipal, Depends(current_device)]
+SessionActor = Annotated[tuple[Principal | None, DevicePrincipal | None], Depends(session_actor)]
 Context = Annotated[RequestContext, Depends(request_context)]

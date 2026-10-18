@@ -10,8 +10,9 @@ from sqlalchemy.orm.exc import StaleDataError
 
 from app.db.errors import translate, translate_errors
 from app.db.repositories import (SqlAuditRepository, SqlAuthSessionRepository, SqlAuthTokenRepository,
-                                 SqlDeviceChallengeRepository, SqlDeviceRepository, SqlInvitationRepository,
-                                 SqlMigrationRepository, SqlUserRepository)
+                                 SqlConnectionRepository, SqlDeviceChallengeRepository, SqlDeviceRepository,
+                                 SqlInvitationRepository, SqlMigrationRepository, SqlSessionRepository,
+                                 SqlUserRepository)
 
 
 class SqlAlchemyUnitOfWork:
@@ -29,6 +30,8 @@ class SqlAlchemyUnitOfWork:
         self.auth_sessions = SqlAuthSessionRepository(self._session)
         self.auth_tokens = SqlAuthTokenRepository(self._session)
         self.device_challenges = SqlDeviceChallengeRepository(self._session)
+        self.connections = SqlConnectionRepository(self._session)
+        self.sessions = SqlSessionRepository(self._session)
         return self
 
     def __exit__(self, exc_type, exc, tb) -> None:

@@ -57,3 +57,13 @@ def test_teardown_refuses_while_objects_remain(migrated_db):
     with pytest.raises(pyodbc.Error, match=sql_error(51230)):
         migrated_db.run(PR001)
     assert migrated_db.scalar("SELECT SCHEMA_ID('fr')") is not None
+
+
+def test_rollback_of_v0009_refuses_while_a_device_has_no_owner(db_factory):
+    db = db_factory("migrated")
+    db.execute("INSERT INTO fr.remote_id_registry (remote_id) VALUES ('555444333'); "
+               "INSERT INTO fr.devices (owner_user_id, remote_id, display_name) VALUES (NULL, '555444333', 'PC')")
+    r0009 = next(p for p in ROLLBACKS if p.name.startswith("R0009"))
+    with pytest.raises(pyodbc.Error, match=sql_error(51011)):
+        db.run(r0009, as_user=MIGRATOR)
+    assert db.versions()[-1] == 9

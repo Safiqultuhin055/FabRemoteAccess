@@ -1,4 +1,4 @@
-"""ORM mapping of the draft `fr` schema (database/migrations V0001-V0008).
+"""ORM mapping of the draft `fr` schema (database/migrations V0001-V0009).
 
 The SQL migrations are the source of truth; these models never create or alter tables.
 backend/tests/integration/test_model_drift.py compares them with a migrated database.
@@ -104,7 +104,7 @@ class UserInvitation(Base):
 class Device(Base):
     __tablename__ = "devices"
     id: Mapped[uuid.UUID] = _pk()
-    owner_user_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("fr.users.id"))
+    owner_user_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, ForeignKey("fr.users.id"))  # None: no account (V0009)
     remote_id: Mapped[str] = mapped_column(CHAR(9), ForeignKey("fr.remote_id_registry.remote_id"))
     display_name: Mapped[str] = mapped_column(Unicode(c.DISPLAY_NAME_MAX_LENGTH))
     os_name: Mapped[str | None] = mapped_column(Unicode(c.OS_NAME_MAX_LENGTH))
@@ -146,11 +146,12 @@ class RemoteIdAllocation(Base):
 
 
 class DeviceRegistrationChallenge(Base):
-    """Single-use registration attempt bound to user, auth session and proposed public key (V0008)."""
+    """Single-use registration attempt bound to the proposed public key and, when signed in, to the
+    user and auth session (V0008). Both owner fields are None for a device without an account (V0009)."""
     __tablename__ = "device_registration_challenges"
     id: Mapped[uuid.UUID] = _pk()
-    user_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("fr.users.id"))
-    auth_session_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("fr.auth_sessions.id"))
+    user_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, ForeignKey("fr.users.id"))
+    auth_session_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, ForeignKey("fr.auth_sessions.id"))
     algorithm: Mapped[c.KeyAlgorithm] = mapped_column(str_enum(c.KeyAlgorithm, 16), server_default=FetchedValue())
     public_key: Mapped[bytes] = mapped_column(VARBINARY(64))
     key_fingerprint: Mapped[bytes] = mapped_column(
@@ -249,6 +250,8 @@ class RemoteSession(Base):
     end_reason: Mapped[c.SessionEndReason | None] = mapped_column(str_enum(c.SessionEndReason, 32))
     ended_by_user_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, ForeignKey("fr.users.id"))
     ended_by_device_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, ForeignKey("fr.devices.id"))
+    controller_seen_at: Mapped[datetime | None] = mapped_column(UTCDateTime)   # V0009
+    target_seen_at: Mapped[datetime | None] = mapped_column(UTCDateTime)       # V0009
     row_version: Mapped[bytes] = _row_version()
     __mapper_args__ = _versioning(row_version)
 

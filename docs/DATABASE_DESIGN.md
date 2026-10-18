@@ -345,6 +345,21 @@ Legal basis, response deadlines and exceptions (e.g. legal hold) are for the own
 - **Verified on:** LocalDB (full test suite; local dev DB `FabRemotesDB_dev` migrated to 8).
 - **Applied** to the DEV environment on 2026-10-18 (with P002 re-run); details are in the internal deployment record.
 
+## 17. V0009: computers without an account, per-side session presence (Phase 3e, 2026-10-18)
+
+| Change | Purpose |
+|---|---|
+| `fr.devices.owner_user_id` NULLable | A computer being helped can register without an account (proof of key possession only) |
+| `CK_devices_anonymous_policy` | Without an owner only `verified_users` or `disabled` apply (no address book to check) |
+| `fr.device_registration_challenges.user_id` / `auth_session_id` NULLable, `CK_device_registration_challenges_owner` | Anonymous registration attempts; both owner fields or neither |
+| `fr.sessions.controller_seen_at`, `target_seen_at` | Server time each side was last heard from; a session ends when either side is silent |
+
+- No new tables and no `DROP` in the forward migration; **P002 does not need to be re-run**.
+- Consent is unchanged: `connection_requests.requester_user_id` stays NOT NULL, so only signed-in users can ask, and only the target device can approve.
+- Rollback `R0009` refuses while any device or challenge has no owner, or any session has per-side presence (restore from backup instead).
+- **Verified on:** LocalDB (full test suite; local dev DB `FabRemotesDB_dev` migrated to 9).
+- **Not applied** to the DEV environment: that needs a separate approval. Until then the backend's readiness check reports the shared database as not ready (expects version 9).
+
 ## 15. Phase 2 review corrections (2026-10-17)
 
 | # | Defect found | Correction | Regression tests |

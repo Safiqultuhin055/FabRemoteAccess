@@ -4,6 +4,13 @@ All notable changes to this project are documented here. The project is in **pre
 
 ## [Unreleased]
 
+### Added — Phase 3e: connecting with consent
+- The computer being helped needs **no account**: it registers with its device key (V0009) and proves itself with short-lived device tokens.
+- Connection requests: a signed-in helper enters a Remote ID and presses Connect; the other computer shows a consent dialog (name, email, scam warning, Reject by default, optional block) and must Accept.
+- Sessions: banner on both computers with Disconnect; a session ends when either side disconnects or goes silent for 30 s. No screen sharing yet (Phase 6): the session confirms consent only.
+- Indistinguishable refusals (unknown, offline, blocked, busy), one live session per computer, audit events for every step.
+- Migration V0009 with rollback R0009 (not applied to the DEV environment yet).
+
 ### Changed
 - Desktop app opens straight to the main window, signed out, instead of a sign-in dialog. A Sign in button in the top bar and "Sign in to register" on the This-device card lead to sign-in; registration still requires an account.
 - HTTPS deployment kit (`deploy/`), Windows certificate-store trust in the desktop client, installer `--default-server`.

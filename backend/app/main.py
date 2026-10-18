@@ -28,16 +28,17 @@ from app.log import configure_logging
 from app.security.clock import Clock
 from app.security.passwords import PasswordHasher
 from app.security.rate_limit import RateLimiter, RateLimits
-from app.security.tokens import AccessTokenIssuer
+from app.security.tokens import AccessTokenIssuer, DeviceTokenIssuer
 from app.services.auth import AuthService
+from app.services.connections import ConnectionService
 from app.services.devices import DeviceService
 from app.services.invitations import InvitationService
 
 logger = logging.getLogger(__name__)
 
 
-def _derive_keys(settings: Settings) -> tuple[bytes, bytes]:
-    """Separate JWT and CSRF keys derived from FR_JWT_SIGNING_KEY (key separation)."""
+def _derive_keys(settings: Settings) -> tuple[bytes, bytes, bytes]:
+    """Separate JWT, CSRF and device-token keys derived from FR_JWT_SIGNING_KEY (key separation)."""
     if settings.jwt_signing_key:
         master = settings.jwt_signing_key.get_secret_value().encode("utf-8")
     else:
@@ -45,7 +46,7 @@ def _derive_keys(settings: Settings) -> tuple[bytes, bytes]:
         logger.warning("FR_JWT_SIGNING_KEY is not set: using an ephemeral key; tokens end on restart")
         master = secrets.token_bytes(32)
     derive = lambda label: hmac.new(master, label, hashlib.sha256).digest()  # noqa: E731
-    return derive(b"fabremote-jwt-v1"), derive(b"fabremote-csrf-v1")
+    return derive(b"fabremote-jwt-v1"), derive(b"fabremote-csrf-v1"), derive(b"fabremote-device-token-v1")
 
 
 def create_app(settings: Settings | None = None, database: DatabaseGateway | None = None, *,
@@ -57,7 +58,7 @@ def create_app(settings: Settings | None = None, database: DatabaseGateway | Non
     database = database or Database(settings)
     clock = clock or Clock()
     hasher = password_hasher or PasswordHasher()
-    jwt_key, csrf_key = _derive_keys(settings)
+    jwt_key, csrf_key, device_key = _derive_keys(settings)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
@@ -85,7 +86,9 @@ def create_app(settings: Settings | None = None, database: DatabaseGateway | Non
     issuer = AccessTokenIssuer(jwt_key, settings.access_token_ttl_seconds, clock)
     app.state.auth_service = AuthService(database.unit_of_work, settings, hasher, issuer, clock)
     app.state.invitation_service = InvitationService(database.unit_of_work, hasher, clock)
-    app.state.device_service = DeviceService(database.unit_of_work, settings, clock)
+    device_tokens = DeviceTokenIssuer(device_key, settings.device_token_ttl_seconds, clock)
+    app.state.device_service = DeviceService(database.unit_of_work, settings, clock, device_tokens)
+    app.state.connection_service = ConnectionService(database.unit_of_work, settings, clock)
 
     register_error_handlers(app)
     hsts = settings.env not in (Environment.DEVELOPMENT, Environment.TEST)

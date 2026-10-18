@@ -34,6 +34,12 @@ class RateLimits:
     device_challenge_per_device: Limit = Limit(30, 60)
     device_proof_per_device: Limit = Limit(30, 60)
     device_rotation_per_device: Limit = Limit(5, 60)
+    anonymous_registration_per_ip: Limit = Limit(10, 60)
+    device_token_per_device: Limit = Limit(20, 60)
+    device_token_per_ip: Limit = Limit(60, 60)
+    connection_request_per_user: Limit = Limit(10, 60)
+    connection_request_per_target: Limit = Limit(20, 60)
+    connection_poll_per_caller: Limit = Limit(120, 60)   # status polling every ~2 s, with headroom
 
 
 class RateLimiter:

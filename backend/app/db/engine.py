@@ -22,7 +22,7 @@ from app.db.unit_of_work import SqlAlchemyUnitOfWork
 logger = logging.getLogger(__name__)
 
 # Highest migration in database/migrations this code is written against.
-EXPECTED_SCHEMA_VERSION = 8
+EXPECTED_SCHEMA_VERSION = 9
 
 DatabaseState = Literal["ok", "error", "not_configured"]
 SchemaState = Literal["ok", "mismatch", "unknown"]

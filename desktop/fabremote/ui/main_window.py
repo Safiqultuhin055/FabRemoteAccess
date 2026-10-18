@@ -1,14 +1,14 @@
 """Main window (layout from the design mockup).
 
-The window opens signed out (user None): the server status and Remote ID input work, and
-the Sign in button and the device card lead to sign-in. Everything that needs an account
-waits for it; nothing is shown as registered or online before the server confirms it.
+The window opens signed out (user None). This computer registers and receives requests
+without an account; asking to connect to another computer needs a signed-in user, so
+Connect then asks the user to sign in.
 
 Honesty rules (docs/PHASE1_AUDIT.md): status indicators show only verified state. The
-"This device" card is driven by DeviceController against the real device API (Phase 3d):
-the Remote ID, verified identity and Online status come only from server responses.
-Connection requests and sessions do not exist yet, so Connect stays disabled with the
-reason; nothing is simulated outside explicit preview mode.
+Remote ID, verified identity and Online status come only from server responses. A session
+only means the other person accepted: there is no screen sharing yet (Phase 6), and the
+banner says so. Nothing is simulated outside explicit preview mode, where connecting is
+disabled.
 """
 
 from __future__ import annotations
@@ -21,14 +21,22 @@ from PySide6.QtWidgets import (QButtonGroup, QFrame, QHBoxLayout, QLabel, QLineE
 
 from fabremote import __version__, remote_id
 from fabremote.api_client import ApiClient, ApiError
-from fabremote.device import ApiDeviceGateway, DeviceGateway, SignedOutGateway
+from fabremote.connection import (ApiConnectionGateway, IncomingController, IncomingRequest, OutgoingController,
+                                  OutgoingState, OutgoingStatus, SessionInfo)
+from fabremote.device import ApiDeviceGateway, DeviceGateway, DeviceStatus
 from fabremote.device_identity import DeviceIdentity, DpapiKeyStore
 from fabremote.device_controller import DeviceController
+from fabremote.ui.consent_dialog import ConsentDialog
 from fabremote.ui.device_card import DeviceCard
 from fabremote.ui.theme import CORAL, MUTED, NAVY, OK, icon, logo_icon, logo_pixmap
 from fabremote.workers import run_async
 
-NOT_YET = "Available after connection requests and target-side consent are implemented (Phase 3e)."
+NOT_YET = "Screen sharing arrives in a later version (Phase 6)."
+NO_MEDIA = "Screen sharing is not available in this preview: the session confirms consent only."
+TARGET_END = {"target_disconnect": "You ended the session.",
+              "controller_disconnect": "The other person ended the session.",
+              "timeout": "The connection to the other computer was lost.",
+              "revoked": "The session was ended by an administrator."}
 NAV = [("home", "Home"), ("clock", "Recent Sessions"), ("star", "Favorites"), ("book", "Address Book"),
        (None, None), ("settings", "Settings"), ("help", "Help")]
 
@@ -75,17 +83,20 @@ class MainWindow(QMainWindow):
     signed_out = Signal()
     sign_in_requested = Signal()
 
-    def __init__(self, client: ApiClient, user: dict | None, device_gateway: DeviceGateway | None = None):
+    def __init__(self, client: ApiClient, user: dict | None, device_gateway: DeviceGateway | None = None,
+                 connection_gateway=None):
         super().__init__()
         self._client = client
         self._user = user
-        if device_gateway:
-            gateway = device_gateway
-        elif user is None:
-            gateway = SignedOutGateway()
-        else:
-            gateway = ApiDeviceGateway(client, DeviceIdentity(DpapiKeyStore.for_server(client.base_url)), user["id"])
+        gateway = device_gateway or ApiDeviceGateway(client, DeviceIdentity(DpapiKeyStore.for_server(client.base_url)))
         self.device = DeviceController(gateway, platform.node() or "This computer", parent=self)
+        if connection_gateway is None and isinstance(gateway, ApiDeviceGateway):
+            connection_gateway = ApiConnectionGateway(client, gateway)
+        # Preview data never pretends to connect: no connection features without a real gateway.
+        self.connections = connection_gateway
+        self.incoming = IncomingController(connection_gateway, parent=self) if connection_gateway else None
+        self.outgoing = OutgoingController(connection_gateway, parent=self) if connection_gateway else None
+        self._consent_dialogs: dict[str, ConsentDialog] = {}
         self.device.auth_required.connect(self.signed_out.emit)
         self.setWindowTitle("Fabulous Remote" + (" — PREVIEW DATA" if gateway.preview else ""))
         self.setWindowIcon(logo_icon())
@@ -113,6 +124,16 @@ class MainWindow(QMainWindow):
         self._health_timer.timeout.connect(self.check_health)
         self._health_timer.start(15_000)
         self.check_health()
+
+        if self.incoming:
+            self.incoming.request_received.connect(self._ask_consent)
+            self.incoming.request_closed.connect(self._close_consent)
+            self.incoming.session_changed.connect(self._incoming_session)
+            self.incoming.error.connect(self._show_connection_message)
+        if self.outgoing:
+            self.outgoing.state_changed.connect(self._outgoing_changed)
+        self.device.state_changed.connect(self._device_changed)
+        self._device_changed(self.device.state)
 
     # --------------------------------------------------------------- layout
 
@@ -202,21 +223,46 @@ class MainWindow(QMainWindow):
         self.connect_button.setObjectName("primary")
         self.connect_button.setIcon(icon("link", "#ffffff"))
         self.connect_button.setEnabled(False)
-        self.connect_button.setToolTip(NOT_YET)
+        self.connect_button.clicked.connect(self._connect_clicked)
+        self.remote_input.returnPressed.connect(self._connect_clicked)
         row.addWidget(self.remote_input, 1)
         row.addWidget(self.connect_button)
         layout.addLayout(row)
         self.remote_hint = label("A Remote ID has 9 digits, for example 105 280 964.", "hint")
         layout.addWidget(self.remote_hint)
-        layout.addWidget(label(f"Connecting is not available in this preview. {NOT_YET}", "notice", wrap=True))
+
+        status_row = QHBoxLayout()
+        self.connection_status = label("", "muted", wrap=True)
+        self.connection_status.setAccessibleName("Connection status")
+        self.cancel_button = QPushButton("Cancel request")
+        self.cancel_button.setObjectName("secondary")
+        self.cancel_button.hide()
+        self.cancel_button.clicked.connect(lambda: self.outgoing and self.outgoing.cancel())
+        status_row.addWidget(self.connection_status, 1)
+        status_row.addWidget(self.cancel_button)
+        layout.addLayout(status_row)
+
+        self.session_banner = QFrame()
+        self.session_banner.setObjectName("sessionBanner")
+        banner = QHBoxLayout(self.session_banner)
+        banner.setContentsMargins(16, 12, 16, 12)
+        self.session_text = label("", wrap=True)
+        self.session_text.setAccessibleName("Session")
+        self.disconnect_button = QPushButton("Disconnect")
+        self.disconnect_button.setObjectName("primary")
+        self.disconnect_button.clicked.connect(self._disconnect_clicked)
+        banner.addWidget(self.session_text, 1)
+        banner.addWidget(self.disconnect_button)
+        self.session_banner.hide()
+        layout.addWidget(self.session_banner)
+
+        layout.addWidget(label("Connecting asks the other person to accept on their screen; they see your name and "
+                               f"email. {NOT_YET}", "notice", wrap=True))
 
         self.device_card = DeviceCard()
         self.device_card.register_requested.connect(self.device.register)
         self.device_card.retry_requested.connect(self.device.retry)
         self.device_card.recheck_requested.connect(self.device.refresh_presence)
-        self.device_card.sign_in_requested.connect(self.sign_in_requested)
-        if self._user is None and not self.device.state.preview:
-            self.device_card.require_sign_in()
         self.device.state_changed.connect(self.device_card.render)
         self.device_card.render(self.device.state)
         self.device.start()   # resume a registration stored on this computer, confirmed by the server
@@ -233,7 +279,7 @@ class MainWindow(QMainWindow):
         return page
 
     def _recent_page(self) -> QWidget:
-        return empty_state("Recent Sessions", f"No sessions yet. {NOT_YET}")
+        return empty_state("Recent Sessions", "Session history will be listed here in a later version.")
 
     def _favorites_page(self) -> QWidget:
         return empty_state("Favorites", "Favorites will be available with the address book (Phase 4).")
@@ -259,8 +305,9 @@ class MainWindow(QMainWindow):
         info_layout.addWidget(label(self._client.base_url, "muted"))
         info_layout.addSpacing(8)
         info_layout.addWidget(label("Security", "section"))
-        info_layout.addWidget(label("Sign-in tokens are kept in memory only and are discarded when you sign out "
-                                    "or close the app.", "muted", wrap=True))
+        info_layout.addWidget(label("Sign-in tokens and this computer's device token are kept in memory only and "
+                                    "are discarded when you close the app (sign-in tokens also when you sign out). "
+                                    "The device key never leaves this computer.", "muted", wrap=True))
         layout.addWidget(info)
         layout.addStretch()
         return page
@@ -275,17 +322,122 @@ class MainWindow(QMainWindow):
                                "Never accept a request from someone who contacted you unexpectedly claiming to be "
                                "support.", "warning", wrap=True))
         steps, steps_layout = card()
-        steps_layout.addWidget(label("How a session will work", "section"))
-        for text in ("1. Both people sign in to Fabulous Remote.",
-                     "2. The person being helped reads out the Remote ID shown on their Home screen.",
-                     "3. You enter it and press Connect; they see your name and choose Accept or Reject.",
-                     "4. A banner shows the session is active, and either side can disconnect instantly."):
+        steps_layout.addWidget(label("How connecting works", "section"))
+        for text in ("1. The person being helped opens Fabulous Remote (no account needed), registers their "
+                     "computer once, and reads out the Remote ID shown on the Home screen.",
+                     "2. You sign in, enter that ID and press Connect.",
+                     "3. They see your name and email and choose Accept or Reject.",
+                     "4. A banner shows the session on both computers; either side can disconnect at any time.",
+                     f"{NOT_YET} Until then a session confirms consent only."):
             steps_layout.addWidget(label(text, "muted", wrap=True))
         layout.addWidget(steps)
         layout.addStretch()
         return page
 
     # -------------------------------------------------------------- actions
+
+    # ----------------------------------------------------------- connecting
+
+    def _device_changed(self, state) -> None:
+        registered = state.status in (DeviceStatus.ONLINE, DeviceStatus.OFFLINE)
+        if self.incoming:
+            if registered and not self.incoming.running:
+                self.incoming.start()
+            elif not registered and self.incoming.running:
+                self.incoming.stop()
+        self._update_connect()
+
+    def _connect_block_reason(self) -> str | None:
+        if self.outgoing is None:
+            return "Connecting is not available with preview data."
+        if self.device.state.status is not DeviceStatus.ONLINE:
+            return "Register this computer and wait until it is online first."
+        if self.outgoing.state.busy or (self.incoming and self.incoming.session):
+            return "Already connecting or in a session."
+        if not remote_id.is_valid(self.remote_input.text()):
+            return "Enter a 9-digit Remote ID."
+        return None
+
+    def _update_connect(self) -> None:
+        reason = self._connect_block_reason()
+        self.connect_button.setEnabled(reason is None)
+        if reason is None and self._user is None:
+            reason = "You will be asked to sign in first."
+        self.connect_button.setToolTip(reason or "")
+
+    def _connect_clicked(self) -> None:
+        if self._connect_block_reason() is not None:
+            return
+        if self._user is None:
+            self.sign_in_requested.emit()
+            return
+        self.outgoing.connect_to(self.remote_input.text())
+
+    def _disconnect_clicked(self) -> None:
+        if self.outgoing and self.outgoing.state.status is OutgoingStatus.CONNECTED:
+            self.outgoing.disconnect()
+        elif self.incoming and self.incoming.session:
+            self.incoming.end_session()
+
+    def _show_connection_message(self, text: str) -> None:
+        self.connection_status.setText(text)
+
+    def _show_banner(self, text: str | None) -> None:
+        self.session_banner.setVisible(text is not None)
+        self.session_text.setText(text or "")
+
+    def _outgoing_changed(self, state: OutgoingState) -> None:
+        target = remote_id.display(state.remote_id or "")
+        self.cancel_button.setVisible(state.status is OutgoingStatus.WAITING)
+        if state.status is OutgoingStatus.SENDING:
+            self.connection_status.setText(f"Sending a request to {target}…")
+        elif state.status is OutgoingStatus.WAITING:
+            self.connection_status.setText(f"Waiting for {target} to accept…")
+        elif state.status is OutgoingStatus.CONNECTED:
+            self.connection_status.setText("")
+            self._show_banner(f"Connected to {target}: the other person accepted. {NO_MEDIA}")
+        else:
+            self.connection_status.setText(state.message or "")
+            if not (self.incoming and self.incoming.session):
+                self._show_banner(None)
+        self._update_connect()
+
+    def _ask_consent(self, request: IncomingRequest) -> None:
+        dialog = ConsentDialog(request, self)
+        dialog.accepted_request.connect(self.incoming.accept)
+        dialog.rejected_request.connect(self.incoming.reject)
+        dialog.finished.connect(lambda _: self._consent_dialogs.pop(request.id, None))
+        self._consent_dialogs[request.id] = dialog
+        dialog.show()
+        dialog.raise_()
+        dialog.activateWindow()
+
+    def _close_consent(self, request_id: str) -> None:
+        dialog = self._consent_dialogs.pop(request_id, None)
+        if dialog is not None:
+            dialog.expire()
+
+    def _incoming_session(self, info: SessionInfo) -> None:
+        if info.active:
+            for dialog in list(self._consent_dialogs.values()):   # one session at a time
+                dialog.expire()
+            self.connection_status.setText("")
+            self._show_banner(f"Connected: {info.controller_name} (computer {remote_id.display(info.controller_remote_id)}) "
+                              f"has your permission. {NO_MEDIA}")
+        else:
+            self._show_banner(None)
+            self.connection_status.setText(TARGET_END.get(info.end_reason or "", "The session has ended."))
+        self._update_connect()
+
+    def shutdown(self) -> None:
+        """Stop every timer before the window is replaced (sign-in or sign-out)."""
+        self._health_timer.stop()
+        self.device.stop()
+        for controller in (self.incoming, self.outgoing):
+            if controller:
+                controller.stop()
+        for dialog in list(self._consent_dialogs.values()):
+            dialog.expire()
 
     def _remote_id_edited(self, text: str) -> None:
         formatted = remote_id.display(text)
@@ -299,6 +451,7 @@ class MainWindow(QMainWindow):
             self.remote_hint.setObjectName("hint")
         self.remote_hint.style().unpolish(self.remote_hint)
         self.remote_hint.style().polish(self.remote_hint)
+        self._update_connect()
 
     def check_health(self) -> None:
         run_async(self._client.health, self._health_result, lambda _: self._health_result(False))
@@ -312,8 +465,11 @@ class MainWindow(QMainWindow):
             self.status_text.setText("Server unreachable")
 
     def sign_out(self) -> None:
-        self._health_timer.stop()
-        self.device.stop()
+        if self.outgoing and self.outgoing.state.status is OutgoingStatus.CONNECTED:
+            self.outgoing.disconnect()
+        elif self.outgoing and self.outgoing.state.status is OutgoingStatus.WAITING:
+            self.outgoing.cancel()
+        self.shutdown()
         run_async(self._client.logout, lambda _: self.signed_out.emit(), lambda _: self.signed_out.emit())
 
     def handle_session_error(self, error: Exception) -> None:

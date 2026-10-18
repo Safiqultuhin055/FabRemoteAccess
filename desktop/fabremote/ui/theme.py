@@ -51,6 +51,8 @@ QLabel#error {{ color: {CORAL_DARK}; font-size: 12px; }}
 QLabel#notice {{ background: #fff4e5; color: #8a4b00; border: 1px solid #ffd8a8; border-radius: 8px; padding: 10px 12px; }}
 QLabel#warning {{ background: #fff4f3; border-left: 4px solid {CORAL}; padding: 12px; color: {INK}; }}
 QFrame#card {{ background: #ffffff; border: 1px solid {LINE}; border-radius: 12px; }}
+QFrame#sessionBanner {{ background: #e6f6ed; border: 1px solid #9fd8b5; border-radius: 10px; }}
+QFrame#sessionBanner QLabel {{ color: #0f5130; }}
 QLineEdit {{ background: #ffffff; border: 1px solid #c9d3e3; border-radius: 8px; padding: 10px 12px; font-size: 14px; }}
 QLineEdit:focus {{ border: 1px solid #2f6bff; }}
 QPushButton#primary {{ background: {CORAL}; color: #ffffff; border: none; border-radius: 8px; padding: 10px 22px;

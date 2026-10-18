@@ -28,11 +28,21 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 REGISTER = b"fabremote-device-register-v1\x00"
 PRESENCE = b"fabremote-device-presence-v1\x00"
 ROTATE = b"fabremote-device-rotate-v1\x00"
+REGISTER_ANONYMOUS = b"fabremote-device-register-anonymous-v1\x00"
+TOKEN = b"fabremote-device-token-v1\x00"
 DPAPI_ENTROPY = b"fabremote-device-key-v1"
 
 
 def registration_message(challenge_id: uuid.UUID, nonce: bytes, user_id: uuid.UUID, public_key: bytes) -> bytes:
     return REGISTER + challenge_id.bytes + nonce + user_id.bytes + hashlib.sha256(public_key).digest()
+
+
+def anonymous_registration_message(challenge_id: uuid.UUID, nonce: bytes, public_key: bytes) -> bytes:
+    return REGISTER_ANONYMOUS + challenge_id.bytes + nonce + hashlib.sha256(public_key).digest()
+
+
+def token_message(challenge_id: uuid.UUID, nonce: bytes, device_id: uuid.UUID) -> bytes:
+    return TOKEN + challenge_id.bytes + nonce + device_id.bytes
 
 
 def presence_message(challenge_id: uuid.UUID, nonce: bytes, device_id: uuid.UUID) -> bytes:

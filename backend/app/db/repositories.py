@@ -19,9 +19,9 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.db.errors import translate_errors
-from app.db.models import (AuditEvent, AuthSession, AuthToken, Device, DeviceAuthChallenge, DeviceKey,
-                           DeviceRegistrationChallenge, RemoteIdAllocation, SchemaMigration, User, UserInvitation,
-                           UserRole)
+from app.db.models import (AddressBookEntry, AuditEvent, AuthSession, AuthToken, BlockedRequester,
+                           ConnectionRequest, Device, DeviceAuthChallenge, DeviceKey, DeviceRegistrationChallenge,
+                           RemoteIdAllocation, RemoteSession, SchemaMigration, User, UserInvitation, UserRole)
 from app.domain import constants as c
 from app.log import SENSITIVE_KEY
 
@@ -317,11 +317,17 @@ class SqlDeviceChallengeRepository(_Repository):
         self.flush()
         return challenge
 
-    def consume_registration(self, challenge_id: uuid.UUID, user_id: uuid.UUID,
+    @staticmethod
+    def _owned_by(user_id: uuid.UUID | None):
+        column = DeviceRegistrationChallenge.user_id
+        return column.is_(None) if user_id is None else column == user_id
+
+    def consume_registration(self, challenge_id: uuid.UUID, user_id: uuid.UUID | None,
                              now: datetime) -> DeviceRegistrationChallenge | None:
-        """Atomically use a live challenge of this user. Exactly one concurrent caller gets it."""
+        """Atomically use a live challenge of this user (None: an attempt without an account).
+        Exactly one concurrent caller gets it."""
         won = self._update(update(DeviceRegistrationChallenge).where(
-            DeviceRegistrationChallenge.id == challenge_id, DeviceRegistrationChallenge.user_id == user_id,
+            DeviceRegistrationChallenge.id == challenge_id, self._owned_by(user_id),
             DeviceRegistrationChallenge.consumed_at.is_(None),
             DeviceRegistrationChallenge.expires_at > now).values(consumed_at=now)) == 1
         if not won:
@@ -330,10 +336,10 @@ class SqlDeviceChallengeRepository(_Repository):
             return self._session.scalar(select(DeviceRegistrationChallenge).where(
                 DeviceRegistrationChallenge.id == challenge_id).execution_options(populate_existing=True))
 
-    def purge_registration(self, user_id: uuid.UUID, before: datetime) -> int:
+    def purge_registration(self, user_id: uuid.UUID | None, before: datetime) -> int:
         with translate_errors():
             return self._session.execute(delete(DeviceRegistrationChallenge).where(
-                DeviceRegistrationChallenge.user_id == user_id,
+                self._owned_by(user_id),
                 or_(DeviceRegistrationChallenge.expires_at < before,
                     DeviceRegistrationChallenge.consumed_at < before)).execution_options(
                 synchronize_session=False)).rowcount
@@ -352,6 +358,123 @@ class SqlDeviceChallengeRepository(_Repository):
         with translate_errors():
             return self._session.scalar(select(DeviceAuthChallenge).where(
                 DeviceAuthChallenge.id == challenge_id).execution_options(populate_existing=True))
+
+
+class SqlConnectionRepository(_Repository):
+    """Connection requests (V0005). Every decision is a conditional UPDATE on a still-pending,
+    unexpired row, so a request can be decided exactly once even under concurrency."""
+
+    def add(self, request: ConnectionRequest) -> ConnectionRequest:
+        self._session.add(request)
+        self.flush()
+        return request
+
+    def get(self, request_id: uuid.UUID) -> ConnectionRequest | None:
+        with translate_errors():
+            return self._session.scalar(select(ConnectionRequest).where(ConnectionRequest.id == request_id)
+                                        .execution_options(populate_existing=True))
+
+    def find_pending(self, requester_user_id: uuid.UUID, target_device_id: uuid.UUID,
+                     now: datetime) -> ConnectionRequest | None:
+        with translate_errors():
+            return self._session.scalar(select(ConnectionRequest).where(
+                ConnectionRequest.requester_user_id == requester_user_id,
+                ConnectionRequest.target_device_id == target_device_id,
+                ConnectionRequest.status == c.RequestStatus.PENDING, ConnectionRequest.expires_at > now))
+
+    def pending_for_target(self, target_device_id: uuid.UUID, now: datetime,
+                           limit: int = 10) -> list[ConnectionRequest]:
+        with translate_errors():
+            return list(self._session.scalars(select(ConnectionRequest).where(
+                ConnectionRequest.target_device_id == target_device_id,
+                ConnectionRequest.status == c.RequestStatus.PENDING, ConnectionRequest.expires_at > now)
+                .order_by(ConnectionRequest.created_at).limit(limit)))
+
+    def expire_overdue(self, now: datetime, *, request_id: uuid.UUID | None = None,
+                       target_device_id: uuid.UUID | None = None) -> int:
+        statement = update(ConnectionRequest).where(ConnectionRequest.status == c.RequestStatus.PENDING,
+                                                    ConnectionRequest.expires_at <= now)
+        if request_id is not None:
+            statement = statement.where(ConnectionRequest.id == request_id)
+        if target_device_id is not None:
+            statement = statement.where(ConnectionRequest.target_device_id == target_device_id)
+        return self._update(statement.values(status=c.RequestStatus.EXPIRED, decided_at=now,
+                                             decision_reason=c.DecisionReason.TIMEOUT))
+
+    def decide(self, request_id: uuid.UUID, status: c.RequestStatus, reason: c.DecisionReason, now: datetime, *,
+               target_device_id: uuid.UUID | None = None, requester_user_id: uuid.UUID | None = None) -> bool:
+        statement = update(ConnectionRequest).where(
+            ConnectionRequest.id == request_id, ConnectionRequest.status == c.RequestStatus.PENDING,
+            ConnectionRequest.expires_at > now)
+        if target_device_id is not None:
+            statement = statement.where(ConnectionRequest.target_device_id == target_device_id)
+        if requester_user_id is not None:
+            statement = statement.where(ConnectionRequest.requester_user_id == requester_user_id)
+        return self._update(statement.values(status=status, decision_reason=reason, decided_at=now)) == 1
+
+    def is_blocked(self, target_device_id: uuid.UUID, user_id: uuid.UUID) -> bool:
+        with translate_errors():
+            return self._session.get(BlockedRequester, (target_device_id, user_id)) is not None
+
+    def block(self, target_device_id: uuid.UUID, user_id: uuid.UUID) -> None:
+        if not self.is_blocked(target_device_id, user_id):
+            self._session.add(BlockedRequester(target_device_id=target_device_id, blocked_user_id=user_id))
+            self.flush()
+
+    def in_address_book(self, owner_user_id: uuid.UUID, remote_id: str) -> bool:
+        with translate_errors():
+            return self._session.scalar(select(func.count()).select_from(AddressBookEntry).where(
+                AddressBookEntry.owner_user_id == owner_user_id, AddressBookEntry.remote_id == remote_id)) > 0
+
+
+class SqlSessionRepository(_Repository):
+    """Remote sessions (V0005, V0009). Ending is a conditional UPDATE, so it happens once."""
+
+    def add(self, session: RemoteSession) -> RemoteSession:
+        self._session.add(session)
+        self.flush()
+        return session
+
+    def get(self, session_id: uuid.UUID) -> RemoteSession | None:
+        with translate_errors():
+            return self._session.scalar(select(RemoteSession).where(RemoteSession.id == session_id)
+                                        .execution_options(populate_existing=True))
+
+    def for_request(self, request_id: uuid.UUID) -> RemoteSession | None:
+        with translate_errors():
+            return self._session.scalar(select(RemoteSession).where(
+                RemoteSession.connection_request_id == request_id))
+
+    def live_for_target(self, target_device_id: uuid.UUID) -> RemoteSession | None:
+        with translate_errors():
+            return self._session.scalar(select(RemoteSession).where(
+                RemoteSession.target_device_id == target_device_id, RemoteSession.state != c.SessionState.ENDED))
+
+    def touch(self, session_id: uuid.UUID, side: str, now: datetime) -> None:
+        column = {"controller": "controller_seen_at", "target": "target_seen_at"}[side]
+        self._update(update(RemoteSession).where(RemoteSession.id == session_id,
+                                                 RemoteSession.state != c.SessionState.ENDED)
+                     .values({column: now, "last_heartbeat_at": now}))
+
+    def end(self, session_id: uuid.UUID, reason: c.SessionEndReason, now: datetime, *,
+            by_user_id: uuid.UUID | None = None, by_device_id: uuid.UUID | None = None) -> bool:
+        return self._update(update(RemoteSession).where(
+            RemoteSession.id == session_id, RemoteSession.state != c.SessionState.ENDED).values(
+            state=c.SessionState.ENDED, ended_at=now, end_reason=reason, ended_by_user_id=by_user_id,
+            ended_by_device_id=by_device_id)) == 1
+
+    def end_silent(self, cutoff: datetime, now: datetime, *, session_id: uuid.UUID | None = None,
+                   target_device_id: uuid.UUID | None = None) -> int:
+        """End live sessions in which either side has not been heard from since `cutoff`."""
+        silent = or_(func.coalesce(RemoteSession.controller_seen_at, RemoteSession.created_at) < cutoff,
+                     func.coalesce(RemoteSession.target_seen_at, RemoteSession.created_at) < cutoff)
+        statement = update(RemoteSession).where(RemoteSession.state != c.SessionState.ENDED, silent)
+        if session_id is not None:
+            statement = statement.where(RemoteSession.id == session_id)
+        if target_device_id is not None:
+            statement = statement.where(RemoteSession.target_device_id == target_device_id)
+        return self._update(statement.values(state=c.SessionState.ENDED, ended_at=now,
+                                             end_reason=c.SessionEndReason.TIMEOUT))
 
 
 class SqlAuditRepository(_Repository):

@@ -13,7 +13,7 @@ from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.domain.errors import (AuthenticationError, ConcurrencyError, ConflictError, DependencyUnavailableError,
-                               DomainError, InputRejectedError, NotFoundError, PermissionDeniedError,
+                               DomainError, GoneError, InputRejectedError, NotFoundError, PermissionDeniedError,
                                PreconditionRequiredError, ProofRejectedError, RateLimitedError)
 from app.log import request_id_var
 
@@ -26,6 +26,7 @@ DOMAIN_STATUS: dict[type[DomainError], int] = {
     NotFoundError: 404,
     ConflictError: 409,
     ConcurrencyError: 412,
+    GoneError: 410,
     PreconditionRequiredError: 428,
     InputRejectedError: 422,
     RateLimitedError: 429,

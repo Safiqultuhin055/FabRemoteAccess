@@ -148,9 +148,26 @@ Every endpoint requires a signed-in user (bearer, or cookie + CSRF). Proof of po
 
 **Remote IDs:** `secrets.randbelow` in 100000000–999999999. Each candidate is inserted into the permanent `fr.remote_id_registry` inside a savepoint; a collision retries with a new candidate, up to 10 times, after which the response is a generic 503. Devices must reference the registry (`FK_devices_remote_id`), and the application role can only INSERT/SELECT the registry, so **an ID is never issued twice, even after revocation or removal**. A client-supplied `remote_id`, `online` or `identity_verified` field is rejected (422, unknown field).
 
-**Not in 3d:** device-only tokens (`/devices/token`) and the presence WebSocket move to Phase 3e with connection requests. Until then the owner's session plus the device signature is required for every heartbeat.
+**Without an account (Phase 3e, V0009, implemented).** The computer being helped needs no user account:
 
-### 5.4 Connection requests — `/api/v1/connection-requests`
+| Signed message | Format |
+|---|---|
+| Anonymous registration | `"fabremote-device-register-anonymous-v1\0" ‖ challenge_id ‖ nonce ‖ SHA-256(public_key)` |
+| Device token | `"fabremote-device-token-v1\0" ‖ challenge_id ‖ nonce ‖ device_id` |
+
+| Endpoint | Auth | Request | Success | Errors | Rules |
+|---|---|---|---|---|---|
+| `POST /devices/anonymous/registration-challenge` | None | as the signed-in variant | 201 `ChallengeOut` | 409 `key_already_registered`, 422, 429 (10/min per IP) | Challenge bound to the key only; single use |
+| `POST /devices/anonymous/register` | None | `{challenge_id, signature}` | 201 `DeviceOut` | 400 `invalid_challenge` / `invalid_signature`, 409, 429 | One guess per challenge; `owner_user_id` NULL; `device.registered` (`anonymous: true`) |
+| `POST /devices/token-challenge` | None | `{device_id}` | 201 `ChallengeOut` | 404 (unknown or revoked), 429 | Nonce in `device_auth_challenges` |
+| `POST /devices/token` | None | `{device_id, challenge_id, signature}` | 200 `{device_token, token_type: "device", expires_in, device}` | 400, 429 | Counts as a heartbeat. `device.auth` |
+| `GET /devices/self`, `POST /devices/self/heartbeat` | `X-Device-Token` | — | 200 `DeviceOut` | 401 `invalid_device_token` | Heartbeat sets `last_seen_at` |
+
+Device tokens are HS256 JWTs (`typ: "device"`, `sub` = device, `kid` = active key ID), 10 minutes (`FR_DEVICE_TOKEN_TTL_SECONDS`), signed with a key derived separately from the access-token key. Every request re-checks that the device is active and the key ID is still its active key. Access tokens are not accepted as device tokens and vice versa. The presence WebSocket (§5.8) is still planned; clients poll.
+
+### 5.4 Connection requests — `/api/v1/connection-requests` (implemented, Phase 3e)
+
+**As implemented:** the requester authenticates as a user (bearer or cookie + CSRF) **and** sends its own computer's `X-Device-Token` (instead of a `did` claim). Target endpoints take `X-Device-Token` only, so the computer being helped needs no account. `GET /connection-requests/incoming` also returns `live_session_id` and counts as the target's heartbeat. A repeated `POST` while a request to the same target is pending returns that request. Expiry is applied lazily on every read and write (no sweeper). `FR_CONNECTION_REQUEST_TTL_SECONDS` defaults to 45.
 
 `RequestOut` = `{id, status, requested_permission, created_at, expires_at, decided_at, decision_reason, target_remote_id, session_id?}`. For the **target**, it also includes `requester: {display_name, email, email_verified}` and `requester_device: {display_name, remote_id}`. The requester never sees the target's device name or owner.
 
@@ -175,7 +192,9 @@ Every endpoint requires a signed-in user (bearer, or cookie + CSRF). Proof of po
 
 Tests: each branch of step 6 returns the same status, body shape and code; rate limits and cooldown; self-request; approve only by the target device (the requester's device gets 404); approve after expiry gives 410 and marks the request expired; double approve gives 409; concurrent approvals for the same target produce exactly one session; permission escalation 422 (and the database rejects it if the API check is bypassed); reject with block prevents the next request; cancel after approval gives 409; the requester never sees the target's device name.
 
-### 5.5 Sessions — `/api/v1/sessions`
+### 5.5 Sessions — `/api/v1/sessions` (partly implemented, Phase 3e)
+
+**As implemented:** `GET /sessions/{id}` and `POST /sessions/{id}/terminate` for the controller user, the target device (`X-Device-Token`), the target owner and admins (auditors read only). Reading a session is that side's presence signal (`controller_seen_at` / `target_seen_at`, V0009); a session in which either side has been silent for `FR_SESSION_PRESENCE_TIMEOUT_SECONDS` (30) ends with `timeout`. Sessions stay `authorizing` until media exists (Phase 6); `SessionOut.media_available` is `false`, and `target.display_name` is hidden from the controller. `GET /sessions` (list) and `PATCH /sessions/{id}/permission` are not implemented yet.
 
 `SessionOut` = `{id, connection_request_id, state, requested_permission, permission_granted, created_at, started_at, ended_at, end_reason, controller: {user_id, display_name, device_remote_id}, target: {device_id, remote_id, display_name}}`
 
@@ -299,7 +318,7 @@ Each step ends with its tests green before the next starts. All database work ru
 2. **3c** Password hashing, admin invitations, bootstrap CLI, invitation acceptance, desktop and web login, refresh rotation, logout, CSRF, `/auth/me`.
 3. **3d** Device registration, challenge/token, session binding, device management and revocation cascade.
 4. **3d** Presence WebSocket (with device registration).
-5. **3e** Connection requests (policy, rate limits, cooldowns), approve/reject/cancel, sessions (list, terminate, permission), sweeper.
+5. **3e** Connection requests (policy, rate limits), approve/reject/cancel, sessions (get, terminate), computers without an account, device tokens. **Done** (lazy expiry instead of a sweeper; session list and permission changes still to do).
 6. **3f** Audit query endpoint, audit-content scanning test, OpenAPI review, security review of Phase 3.
 
 Dependencies to add then (pinned): `fastapi`, `uvicorn[standard]`, `pydantic-settings`, `sqlalchemy>=2`, `pyodbc`, `argon2-cffi`, `pyjwt`, `cryptography`, `httpx` (tests).

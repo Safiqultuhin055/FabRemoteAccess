@@ -1,4 +1,5 @@
-"""The app opens without signing in; everything that needs an account leads to sign-in."""
+"""The app opens without signing in. This computer registers and receives requests without an
+account; only asking to connect to another computer needs a signed-in user."""
 
 from __future__ import annotations
 
@@ -6,7 +7,7 @@ import pytest
 from PySide6.QtWidgets import QDialog
 
 from fabremote import app as app_module
-from fabremote.device import SIGN_IN_REQUIRED, DeviceStatus, SignedOutGateway
+from fabremote.device import DeviceState, DeviceStatus, PreviewDeviceGateway
 from fabremote.ui.main_window import MainWindow
 
 USER = {"id": "6f9619ff-8b86-d011-b42d-00c04fc964ff", "email": "alex@example.com", "display_name": "Alex Doe",
@@ -16,9 +17,7 @@ USER = {"id": "6f9619ff-8b86-d011-b42d-00c04fc964ff", "email": "alex@example.com
 class FakeClient:
     base_url = "http://127.0.0.1:8765"
     signed_in = False
-
-    def __init__(self):
-        self.device_calls = 0
+    has_device_token = False
 
     def health(self):
         return True
@@ -26,57 +25,59 @@ class FakeClient:
     def logout(self):
         pass
 
-    def __getattr__(self, name):
-        if name.startswith("device"):
-            self.device_calls += 1
-            raise AssertionError("signed-out window must not call the device API")
-        raise AttributeError(name)
+
+class NoopConnections:
+    signed_in = False
+
+
+def online(window):
+    """Put the device card in the server-confirmed Online state (as the controller would)."""
+    state = DeviceState(DeviceStatus.ONLINE, remote_id="105280964", device_name="PC", identity_verified=True)
+    window.device._set(state)
 
 
 @pytest.fixture
 def signed_out(qapp):
-    client = FakeClient()
-    window = MainWindow(client, None)
-    yield window, client
+    window = MainWindow(FakeClient(), None, connection_gateway=NoopConnections())
+    yield window
+    window.shutdown()
     window.close()
 
 
-def test_signed_out_window_offers_sign_in_instead_of_an_account(signed_out):
-    window, client = signed_out
-    assert window.sign_in_button.text() == "Sign in"
-    assert not hasattr(window, "avatar")
-    assert window.device.state.status is DeviceStatus.NOT_REGISTERED
-    assert window.your_id.text() == "Not registered"         # no Remote ID before sign-in
-    assert SIGN_IN_REQUIRED in window.device_card.message_label.text()
-    assert not window.connect_button.isEnabled()
-    assert client.device_calls == 0
+def test_signed_out_window_registers_without_an_account(signed_out):
+    assert signed_out.sign_in_button.text() == "Sign in"
+    assert not hasattr(signed_out, "avatar")
+    button = signed_out.device_card.register_button
+    assert button.text() == "Register This Device" and button.isEnabled()   # no sign-in needed
+    assert signed_out.your_id.text() == "Not registered"                     # nothing before the server says so
 
 
-def test_both_sign_in_buttons_request_sign_in(signed_out):
-    window, _ = signed_out
+def test_connect_asks_a_signed_out_user_to_sign_in(signed_out):
+    online(signed_out)
+    signed_out.remote_input.setText("123 456 789")
+    signed_out._remote_id_edited("123 456 789")
+    assert signed_out.connect_button.isEnabled()
+    assert "sign in" in signed_out.connect_button.toolTip()
     requests = []
-    window.sign_in_requested.connect(lambda: requests.append(1))
-    window.sign_in_button.click()
-    button = window.device_card.register_button
-    assert button.text() == "Sign in to register" and button.isEnabled()
-    button.click()
-    assert len(requests) == 2
+    signed_out.sign_in_requested.connect(lambda: requests.append(1))
+    signed_out.connect_button.click()
+    assert requests == [1] and signed_out.outgoing.state.status.value == "idle"
 
 
-def test_signed_out_gateway_never_reports_a_device():
-    gateway = SignedOutGateway()
-    assert gateway.supported is False and gateway.has_local_device() is False
-    for call in (gateway.existing, gateway.verify_identity, gateway.is_online, lambda: gateway.register("PC")):
-        with pytest.raises(Exception):
-            call()
+def test_top_bar_sign_in_button_requests_sign_in(signed_out):
+    requests = []
+    signed_out.sign_in_requested.connect(lambda: requests.append(1))
+    signed_out.sign_in_button.click()
+    assert requests == [1]
 
 
-def test_signed_in_card_still_registers(qapp):
-    window = MainWindow(FakeClient(), USER, device_gateway=SignedOutGateway())
+def test_preview_data_never_offers_connecting(qapp):
+    window = MainWindow(FakeClient(), USER, device_gateway=PreviewDeviceGateway("success", latency=0))
     try:
-        assert window.device_card.register_button.text() == "Register This Device"
-        assert window.avatar.text() == "AD"
+        assert window.outgoing is None and window.incoming is None
+        assert not window.connect_button.isEnabled()
     finally:
+        window.shutdown()
         window.close()
 
 
@@ -92,7 +93,6 @@ class FakeDialog:
 
 def test_controller_opens_signed_out_then_switches_on_sign_in_and_back_on_sign_out(qapp, monkeypatch):
     monkeypatch.setattr(app_module, "LoginDialog", FakeDialog)
-    monkeypatch.setattr("fabremote.ui.main_window.ApiDeviceGateway", lambda *a, **k: SignedOutGateway())
     controller = app_module.Controller(qapp, FakeClient())
     assert controller.start() is True
     first = controller.window
@@ -109,4 +109,5 @@ def test_controller_opens_signed_out_then_switches_on_sign_in_and_back_on_sign_o
 
     signed_in.signed_out.emit()
     assert controller.window._user is None and controller.window.isVisible()
+    controller.window.shutdown()
     controller.window.close()

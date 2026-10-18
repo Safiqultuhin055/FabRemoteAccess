@@ -1,4 +1,5 @@
-"""/api/v1/devices: registration with proof of key possession, management, verified presence, rotation."""
+"""/api/v1/devices: registration with proof of key possession (signed in, or without an account),
+device tokens, management, verified presence, rotation."""
 
 from __future__ import annotations
 
@@ -11,7 +12,7 @@ from typing import Annotated, Literal
 from fastapi import APIRouter, Depends, Header, Query, Request, Response, status
 from pydantic import BaseModel, Field, StringConstraints
 
-from app.api.auth_deps import Context, CurrentPrincipal, enforce_rate_limit
+from app.api.auth_deps import Context, CurrentDevice, CurrentPrincipal, enforce_rate_limit
 from app.api.v1.schemas import DisplayName, Strict
 from app.domain.constants import (CLIENT_VERSION_MAX_LENGTH, OS_NAME_MAX_LENGTH, OS_VERSION_MAX_LENGTH,
                                   DeviceRevokedReason, DeviceStatus, IncomingPolicy)
@@ -160,6 +161,84 @@ def register(body: SignedChallengeIn, request: Request, response: Response, prin
     view = devices.register(principal, body.challenge_id, b64decode(body.signature, "signature"), ctx)
     response.headers["Location"] = f"/api/v1/devices/{view.device.id}"
     return with_etag(view, response)
+
+
+# ------------------------------------------- without an account (V0009); before /{device_id}
+
+
+@router.post("/anonymous/registration-challenge", status_code=status.HTTP_201_CREATED, response_model=ChallengeOut,
+             summary="Start registering this computer without an account (proposes its public key)")
+def anonymous_registration_challenge(body: RegistrationChallengeIn, request: Request, ctx: Context,
+                                     devices: Devices) -> ChallengeOut:
+    enforce_rate_limit(request, request.app.state.rate_limits.anonymous_registration_per_ip,
+                       "device-register-anonymous", ctx.ip or "")
+    challenge = devices.create_anonymous_challenge(
+        b64decode(body.public_key, "public_key"), body.device_name, body.os_name, body.os_version, body.client_version)
+    return ChallengeOut(challenge_id=challenge.id, nonce=b64encode(challenge.nonce), expires_at=challenge.expires_at,
+                        message_format=device_proof.REGISTER_ANONYMOUS.decode().rstrip("\x00"))
+
+
+@router.post("/anonymous/register", status_code=status.HTTP_201_CREATED, response_model=DeviceOut,
+             summary="Complete registration without an account; the server assigns the Remote ID")
+def anonymous_register(body: SignedChallengeIn, request: Request, response: Response, ctx: Context,
+                       devices: Devices) -> DeviceOut:
+    enforce_rate_limit(request, request.app.state.rate_limits.anonymous_registration_per_ip,
+                       "device-register-anonymous-complete", ctx.ip or "")
+    view = devices.register_anonymous(body.challenge_id, b64decode(body.signature, "signature"), ctx)
+    response.headers["Location"] = f"/api/v1/devices/{view.device.id}"
+    return with_etag(view, response)
+
+
+class TokenChallengeIn(Strict):
+    device_id: uuid.UUID
+
+
+class DeviceTokenIn(Strict):
+    device_id: uuid.UUID
+    challenge_id: uuid.UUID
+    signature: Base64
+
+
+class DeviceTokenOut(BaseModel):
+    device_token: str = Field(description="Send as X-Device-Token. Short-lived; never stored by the server.")
+    token_type: Literal["device"] = "device"
+    expires_in: int
+    device: DeviceOut
+
+
+@router.post("/token-challenge", status_code=status.HTTP_201_CREATED, response_model=ChallengeOut,
+             summary="Nonce for a device token (sign it with the device key)")
+def token_challenge(body: TokenChallengeIn, request: Request, ctx: Context, devices: Devices) -> ChallengeOut:
+    limits = request.app.state.rate_limits
+    enforce_rate_limit(request, limits.device_token_per_ip, "device-token-ip", ctx.ip or "")
+    enforce_rate_limit(request, limits.device_token_per_device, "device-token-challenge", str(body.device_id))
+    challenge = devices.token_challenge(body.device_id)
+    return ChallengeOut(challenge_id=challenge.id, nonce=b64encode(challenge.nonce), expires_at=challenge.expires_at,
+                        message_format=device_proof.TOKEN.decode().rstrip("\x00"))
+
+
+@router.post("/token", response_model=DeviceTokenOut, summary="Exchange a signed challenge for a device token")
+def device_token(body: DeviceTokenIn, request: Request, ctx: Context, devices: Devices) -> DeviceTokenOut:
+    enforce_rate_limit(request, request.app.state.rate_limits.device_token_per_device, "device-token",
+                       str(body.device_id))
+    token, view = devices.issue_token(body.device_id, body.challenge_id, b64decode(body.signature, "signature"), ctx)
+    return DeviceTokenOut(device_token=token, expires_in=request.app.state.settings.device_token_ttl_seconds,
+                          device=device_out(view))
+
+
+@router.get("/self", response_model=DeviceOut, summary="This device (device token)")
+def device_self(caller: CurrentDevice, devices: Devices) -> DeviceOut:
+    return device_out(devices.device_self(caller))
+
+
+@router.post("/self/heartbeat", response_model=DeviceOut, summary="Presence heartbeat (device token)")
+def device_heartbeat(request: Request, caller: CurrentDevice, ctx: Context, devices: Devices) -> DeviceOut:
+    enforce_rate_limit(request, request.app.state.rate_limits.connection_poll_per_caller, "device-heartbeat",
+                       str(caller.device_id))
+    return device_out(devices.device_heartbeat(caller, ctx))
+
+
+# ------------------------------------------------------------- signed-in owner
 
 
 @router.get("/me", response_model=DeviceOut, summary="The device bound to the current session")
