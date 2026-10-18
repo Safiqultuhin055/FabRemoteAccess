@@ -1,0 +1,4 @@
+# Desktop client (preview) runtime dependencies. Exact pins; update deliberately.
+PySide6==6.12.0
+httpx==0.28.1
+cryptography==50.0.2

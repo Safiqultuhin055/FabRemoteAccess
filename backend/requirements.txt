@@ -1,0 +1,10 @@
+# Backend runtime dependencies (Phase 3a-3d). Exact pins; update deliberately.
+fastapi==0.143.3
+uvicorn[standard]==0.54.0
+pydantic==2.14.1
+pydantic-settings==2.16.0
+SQLAlchemy==2.1.5
+pyodbc==5.3.0
+argon2-cffi==25.1.0
+PyJWT==2.15.1
+cryptography==50.0.2

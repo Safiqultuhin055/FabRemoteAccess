@@ -1,0 +1,6 @@
+# Development and test dependencies (database tooling, backend, desktop, tests, packaging).
+-r backend/requirements.txt
+-r desktop/requirements.txt
+pytest==9.1.1
+httpx2==2.13.1        # used by fastapi.testclient (Starlette 1.x)
+pyinstaller==6.22.3   # desktop installer build (desktop/packaging/build.py)

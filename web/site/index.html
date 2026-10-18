@@ -1,0 +1,295 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Fabulous Remote — Remote access made simple</title>
+  <meta name="description" content="Fabulous Remote is consent-based remote desktop assistance for Windows, currently in development.">
+  <meta name="referrer" content="no-referrer">
+  <link rel="icon" href="assets/logo.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css"
+        integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH" crossorigin="anonymous">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<a class="visually-hidden-focusable skip-link" href="#main">Skip to content</a>
+
+<!-- Navigation -->
+<nav class="navbar navbar-expand-lg fr-nav sticky-top" aria-label="Main">
+  <div class="container">
+    <a class="navbar-brand fr-brand" href="#top">
+      <img src="assets/logo.svg" alt="" width="32" height="32">
+      <span>Fabulous Remote</span>
+    </a>
+    <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#nav-links"
+            aria-controls="nav-links" aria-expanded="false" aria-label="Toggle navigation">
+      <span class="navbar-toggler-icon"></span>
+    </button>
+    <div class="collapse navbar-collapse" id="nav-links">
+      <ul class="navbar-nav mx-lg-auto">
+        <li class="nav-item"><a class="nav-link" href="#features">Product</a></li>
+        <li class="nav-item"><a class="nav-link" href="#how-it-works">How it works</a></li>
+        <li class="nav-item"><a class="nav-link" href="#security">Security</a></li>
+        <li class="nav-item"><a class="nav-link" href="#download">Download</a></li>
+        <li class="nav-item"><a class="nav-link" href="#support">Support</a></li>
+      </ul>
+      <div class="d-flex gap-2 py-2 py-lg-0">
+        <button type="button" class="btn fr-btn-outline" data-bs-toggle="modal" data-bs-target="#portal-modal">Sign in</button>
+        <a class="btn fr-btn-primary" href="#download">Get started</a>
+      </div>
+    </div>
+  </div>
+</nav>
+
+<main id="main">
+
+  <!-- Hero -->
+  <header class="fr-hero" id="top">
+    <div class="container">
+      <div class="row align-items-center g-5">
+        <div class="col-lg-6">
+          <p class="fr-eyebrow">Remote desktop access software</p>
+          <h1 class="fr-display">Remote access.<br><span class="fr-accent">Made simple.</span></h1>
+          <p class="fr-lead">Securely connect to your devices from anywhere — with the person at the other screen always in control.</p>
+          <div class="d-flex flex-wrap gap-3 mt-4">
+            <a class="btn btn-lg fr-btn-primary" href="#download">
+              <svg class="fr-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m0 0-5-5m5 5 5-5M4 19h16"/></svg>
+              Windows download
+            </a>
+            <a class="btn btn-lg fr-btn-outline" href="#features">Explore features
+              <svg class="fr-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg>
+            </a>
+          </div>
+          <p class="fr-status mt-4" aria-live="polite">
+            <span class="fr-status-dot" id="status-dot"></span>
+            <span id="status-text">Checking service status…</span>
+          </p>
+        </div>
+        <div class="col-lg-6">
+          <!-- Illustration: two devices joined by an encrypted link -->
+          <svg class="fr-hero-art" viewBox="0 0 560 380" role="img" aria-label="A laptop securely connected to a desktop monitor">
+            <defs>
+              <linearGradient id="screen" x1="0" y1="0" x2="1" y2="1">
+                <stop offset="0" stop-color="#1e5bff"/><stop offset=".55" stop-color="#2f80ff"/><stop offset="1" stop-color="#7cc4ff"/>
+              </linearGradient>
+              <linearGradient id="swirl" x1="0" y1="1" x2="1" y2="0">
+                <stop offset="0" stop-color="#0b2fb8"/><stop offset="1" stop-color="#9fd8ff"/>
+              </linearGradient>
+            </defs>
+            <circle cx="300" cy="170" r="150" class="art-globe"/>
+            <path d="M70 120 C 200 20, 420 20, 520 110" class="art-arc"/>
+            <!-- monitor -->
+            <rect x="300" y="60" width="230" height="160" rx="12" class="art-frame"/>
+            <rect x="312" y="72" width="206" height="136" rx="6" fill="url(#screen)"/>
+            <path d="M330 190 C 380 110, 440 170, 505 90 L 518 90 L 518 208 L 330 208 Z" fill="url(#swirl)" opacity=".85"/>
+            <path d="M405 220 h20 l8 36 h-36 z" class="art-frame"/>
+            <rect x="380" y="254" width="70" height="10" rx="5" class="art-frame"/>
+            <!-- laptop -->
+            <rect x="40" y="170" width="190" height="122" rx="10" class="art-frame"/>
+            <rect x="50" y="180" width="170" height="102" rx="5" fill="url(#screen)"/>
+            <path d="M60 270 C 100 200, 150 250, 212 190 L 220 190 L 220 282 L 60 282 Z" fill="url(#swirl)" opacity=".85"/>
+            <path d="M20 296 h230 l-14 18 h-202 z" class="art-base"/>
+            <!-- link -->
+            <path d="M232 222 C 260 210, 280 190, 300 170" class="art-link"/>
+            <circle cx="268" cy="196" r="30" class="art-badge"/>
+            <path d="M260 200 l-4 4 a7 7 0 0 1-10-10 l6-6 a7 7 0 0 1 10 0 M276 192 l4-4 a7 7 0 0 0-10-10 l-6 6 a7 7 0 0 0 0 10 M262 202 l12-12" class="art-chain"/>
+          </svg>
+        </div>
+      </div>
+
+      <ul class="fr-strip" aria-label="Highlights">
+        <li><svg class="fr-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 4 6v6c0 5 3.5 8 8 9 4.5-1 8-4 8-9V6z"/><path d="m9 12 2 2 4-4"/></svg>Consent on every session</li>
+        <li><svg class="fr-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>Encrypted end to end</li>
+        <li><svg class="fr-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>Disconnect instantly</li>
+        <li><svg class="fr-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg>Windows first, more platforms planned</li>
+      </ul>
+    </div>
+  </header>
+
+  <!-- Development notice -->
+  <section class="fr-notice" aria-label="Product status">
+    <div class="container">
+      <p><strong>In development.</strong> <span id="notice-availability">Fabulous Remote is being built in phases and is not yet available for download.</span>
+        Each feature below is labelled <span class="fr-badge fr-badge-dev">In development</span> or
+        <span class="fr-badge fr-badge-planned">Planned</span>; nothing is listed as available until it has been tested.</p>
+    </div>
+  </section>
+
+  <!-- Features -->
+  <section class="fr-section" id="features" aria-labelledby="features-title">
+    <div class="container">
+      <p class="fr-eyebrow">Product</p>
+      <h2 class="fr-h2" id="features-title">Everything you need to help, nothing that works behind someone's back</h2>
+      <div class="row g-4 mt-2">
+        <div class="col-md-6 col-lg-4"><article class="fr-card">
+          <span class="fr-badge fr-badge-dev">In development</span>
+          <h3>Remote ID</h3>
+          <p>Each registered device gets a 9-digit ID, like <code>105 280 964</code>. An ID only lets someone <em>ask</em> to connect — it is never a password.</p>
+        </article></div>
+        <div class="col-md-6 col-lg-4"><article class="fr-card">
+          <span class="fr-badge fr-badge-dev">In development</span>
+          <h3>Consent on the target</h3>
+          <p>Every session needs approval on the remote screen, showing who is asking and what they want to do. No answer means no access.</p>
+        </article></div>
+        <div class="col-md-6 col-lg-4"><article class="fr-card">
+          <span class="fr-badge fr-badge-dev">In development</span>
+          <h3>Accounts and devices</h3>
+          <p>Invitation-only accounts, registered devices with their own keys, and a portal to rename or revoke a device in one click.</p>
+        </article></div>
+        <div class="col-md-6 col-lg-4"><article class="fr-card">
+          <span class="fr-badge fr-badge-planned">Planned</span>
+          <h3>Screen sharing</h3>
+          <p>Live view of the remote desktop over WebRTC, direct on your network or relayed when needed — encrypted either way.</p>
+        </article></div>
+        <div class="col-md-6 col-lg-4"><article class="fr-card">
+          <span class="fr-badge fr-badge-planned">Planned</span>
+          <h3>Remote control</h3>
+          <p>Mouse and keyboard control, only when the other person grants it — and they can take it back at any moment.</p>
+        </article></div>
+        <div class="col-md-6 col-lg-4"><article class="fr-card">
+          <span class="fr-badge fr-badge-dev">In development</span>
+          <h3>History and audit</h3>
+          <p>Recent sessions, favorites and an address book for you; a tamper-resistant audit trail of every request and session for administrators.</p>
+        </article></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- How it works -->
+  <section class="fr-section fr-section-alt" id="how-it-works" aria-labelledby="how-title">
+    <div class="container">
+      <p class="fr-eyebrow">How it works</p>
+      <h2 class="fr-h2" id="how-title">Four steps, with the other person in charge</h2>
+      <ol class="fr-steps">
+        <li><span class="fr-step-no">1</span><h3>Install and sign in</h3><p>Install the Windows app and sign in with the account your administrator invited.</p></li>
+        <li><span class="fr-step-no">2</span><h3>Share your Remote ID</h3><p>The person you are helping reads you the ID shown on their <em>Home</em> screen.</p></li>
+        <li><span class="fr-step-no">3</span><h3>They approve</h3><p>They see your name and the access you asked for, and choose <em>Accept</em> or <em>Reject</em>.</p></li>
+        <li><span class="fr-step-no">4</span><h3>Work together</h3><p>A banner shows the session is active. Either side can disconnect instantly.</p></li>
+      </ol>
+    </div>
+  </section>
+
+  <!-- Security -->
+  <section class="fr-section" id="security" aria-labelledby="security-title">
+    <div class="container">
+      <div class="row g-5 align-items-start">
+        <div class="col-lg-5">
+          <p class="fr-eyebrow">Security</p>
+          <h2 class="fr-h2" id="security-title">Designed so access is always visible and always yours to end</h2>
+          <div class="fr-warning" role="note">
+            <h3>Protect yourself from support scams</h3>
+            <p>Only accept a request from someone you know. Never accept a request from someone who contacted you unexpectedly claiming to be support.</p>
+          </div>
+        </div>
+        <div class="col-lg-7">
+          <ul class="fr-checks">
+            <li><strong>Explicit consent.</strong> No session starts without approval on the remote screen; there is no hidden or unattended mode.</li>
+            <li><strong>Encryption.</strong> HTTPS and secure WebSockets for sign-in and signalling; screen data travels peer to peer with DTLS-SRTP.</li>
+            <li><strong>Your screen stays yours.</strong> Our servers broker the connection but never receive or store screen content.</li>
+            <li><strong>Strong accounts.</strong> Invitation-only sign-up, Argon2id password hashing, short-lived tokens and instant revocation.</li>
+            <li><strong>Audit trail.</strong> Every request, approval and session end is recorded for administrators.</li>
+            <li><strong>Least privilege.</strong> Each service gets only the permissions it needs, and secrets are never logged.</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Download -->
+  <section class="fr-section fr-section-alt" id="download" aria-labelledby="download-title">
+    <div class="container">
+      <p class="fr-eyebrow">Download</p>
+      <h2 class="fr-h2" id="download-title">Get Fabulous Remote</h2>
+      <div class="row g-4 mt-2">
+        <div class="col-lg-6"><div class="fr-card fr-download">
+          <div class="d-flex align-items-center gap-3">
+            <svg class="fr-os" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 5.5 10 4.5v7H3zm8-1.1L21 3v8.5H11zM3 12.5h7v7l-7-1zm8 0h10V21l-10-1.4z"/></svg>
+            <div><h3 class="mb-1">Windows 10 and 11 (64-bit)</h3>
+              <span class="fr-badge fr-badge-dev">In development</span></div>
+          </div>
+          <p class="mt-3" id="download-text">The Windows app is being built and tested. A signed installer will be published here when the pilot opens.</p>
+          <!-- Enabled by app.js only when downloads/latest.json describes a published build. -->
+          <button type="button" class="btn fr-btn-primary" id="download-button" disabled aria-disabled="true">Installer not yet available</button>
+          <div class="fr-download-details" id="download-details" hidden>
+            <dl>
+              <dt>Version</dt><dd id="download-version"></dd>
+              <dt>Size</dt><dd id="download-size"></dd>
+              <dt>SHA-256</dt><dd><code id="download-sha256"></code></dd>
+            </dl>
+            <p class="fr-download-warning"><strong>Preview, not code-signed.</strong> Windows SmartScreen will warn:
+              choose <em>More info</em> → <em>Run anyway</em> only if the SHA-256 above matches
+              (<code>Get-FileHash .\FabulousRemote-Setup-*.exe</code>). Installs for your user only; no service, no auto-start.</p>
+          </div>
+        </div></div>
+        <div class="col-lg-6"><div class="fr-card fr-download">
+          <h3>macOS, Linux and mobile</h3>
+          <span class="fr-badge fr-badge-planned">Planned</span>
+          <p class="mt-3">Other platforms are on the roadmap after the Windows release.</p>
+        </div></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Support -->
+  <section class="fr-section" id="support" aria-labelledby="support-title">
+    <div class="container">
+      <div class="fr-support">
+        <div>
+          <h2 class="fr-h2 mb-2" id="support-title">Support</h2>
+          <p class="mb-0">During the pilot, accounts and help are provided by your organisation's administrator.</p>
+        </div>
+        <button type="button" class="btn fr-btn-outline" data-bs-toggle="modal" data-bs-target="#portal-modal">Web portal</button>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<footer class="fr-footer">
+  <div class="container">
+    <div class="row g-4 fr-footer-points">
+      <div class="col-md-4"><div class="fr-point">
+        <span class="fr-point-icon"><svg class="fr-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 4 6v6c0 5 3.5 8 8 9 4.5-1 8-4 8-9V6z"/></svg></span>
+        <div><h3>Secure connections</h3><p>Your data stays protected with industry-standard encryption.</p></div>
+      </div></div>
+      <div class="col-md-4"><div class="fr-point">
+        <span class="fr-point-icon"><svg class="fr-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M13 2 4 14h7l-1 8 9-12h-7z"/></svg></span>
+        <div><h3>Responsive by design</h3><p>Direct peer-to-peer connections when possible, relays only when needed.</p></div>
+      </div></div>
+      <div class="col-md-4"><div class="fr-point">
+        <span class="fr-point-icon"><svg class="fr-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg></span>
+        <div><h3>Cross-platform roadmap</h3><p>Windows first; macOS, Linux and mobile planned.</p></div>
+      </div></div>
+    </div>
+    <div class="fr-footer-bottom">
+      <span class="fr-brand fr-brand-sm"><img src="assets/logo.svg" alt="" width="22" height="22"> Fabulous Remote</span>
+      <span>&copy; <span id="year">2026</span> Fabulous Remote. Product in development.</span>
+    </div>
+  </div>
+</footer>
+
+<!-- Portal notice -->
+<div class="modal fade" id="portal-modal" tabindex="-1" aria-labelledby="portal-modal-title" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2 class="modal-title fs-5" id="portal-modal-title">Web portal coming soon</h2>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <p>Sign-in, device management and connection history will be available in the web portal once it is released.
+          Pilot accounts are created by invitation from your administrator.</p>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn fr-btn-primary" data-bs-dismiss="modal">OK</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"
+        integrity="sha384-YvpcrYf0tY3lHB60NNkmXc5s9fDVZLESaAA55NDzOxhy9GkcIdslK1eN7N6jIeHz" crossorigin="anonymous"></script>
+<script src="app.js"></script>
+</body>
+</html>
